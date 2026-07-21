@@ -6,64 +6,74 @@ import { createClient } from '@/lib/supabase' // using the @ alias is safer!
 import CurrentShiftAction from '../components/CurrentShiftAction';
 import SwapRequests from '../components/SwapRequests'; // Add this import
 import TeamCalendar from '../components/TeamCalendar';
+import { calculateDashboardStats } from '@/lib/stats';
 
 export default function StaffDashboard() {
-  const supabase = createClient() // <-- Add this line right here
-  const router = useRouter()
-  const [profile, setProfile] = useState<any | null>(null)
-  const [shifts, setShifts] = useState<Record<string, any>>({})
-  const [currentMonth, setCurrentMonth] = useState(new Date())
-  const [loading, setLoading] = useState(true)
+  const supabase = createClient();
+  const router = useRouter();
 
+  // Unified State Declarations
+  const [profile, setProfile] = useState<any>(null);
+  const [shifts, setShifts] = useState<any[]>([]); 
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const [stats, setStats] = useState({ scheduled: 0, holiday: 0, sick: 0, overtime: 0 });
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [loading, setLoading] = useState(true);
+
+  // 1. Trigger data fetch on mount
   useEffect(() => {
-    fetchUserDataAndShifts()
-  }, [currentMonth])
+    fetchUserDataAndShifts();
+  }, []);
+
+  // 2. Recalculate stats whenever shifts, leaves, or profile update
+  useEffect(() => {
+    if (profile && shifts.length >= 0 && leaves.length >= 0) {
+      const calculatedStats = calculateDashboardStats(
+        shifts, 
+        leaves, 
+        profile.contracted_hours || 40
+      );
+      setStats(calculatedStats);
+    }
+  }, [shifts, leaves, profile]);
 
   const fetchUserDataAndShifts = async () => {
-    setLoading(true)
-    const { data: { session } } = await supabase.auth.getSession()
+    setLoading(true);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.push('/'); return; }
 
-    if (!session) {
-      router.push('/')
-      return
-    }
-
-    const { data: userProfile } = await supabase
+const { data: userProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('*')
+      .select('contracted_hours, id, role, full_name, email, employment_type') // Added employment_type here!
       .eq('id', session.user.id)
-      .single()
+      .single();
 
-    if (userProfile) {
-      setProfile(userProfile)
-      // Redirect staff if they haven't set their phone number yet
-      if (userProfile.role === 'staff' && !userProfile.phone) {
-        router.push('/dashboard/profile-setup')
-        return
-      }
-    }
+    if (profileError) console.error("Profile error:", profileError);
 
-    // Fetch shifts for the currently viewed month
-    const year = currentMonth.getFullYear()
-    const month = currentMonth.getMonth() + 1
-    const startStr = `${year}-${String(month).padStart(2, '0')}-01`
-    const endStr = `${year}-${String(month).padStart(2, '0')}-31` 
-
-    const { data: shiftData } = await supabase
+    // Fetch Shifts 
+    const { data: shiftData, error: shiftError } = await supabase
       .from('daily_shifts')
       .select('*')
-      .eq('user_id', session.user.id)
-      .gte('date', startStr)
-      .lte('date', endStr)
+      .eq('user_id', session.user.id);
 
-    if (shiftData) {
-      const shiftMap: any = {}
-      shiftData.forEach(shift => { shiftMap[shift.date] = shift })
-      setShifts(shiftMap)
-    }
+    if (shiftError) console.error("Shift fetch error:", shiftError);
 
-    setLoading(false)
-  }
+    // Fetch Leaves
+    const { data: leaveData, error: leaveError } = await supabase
+      .from('leave_requests')
+      .select('*')
+      .eq('user_id', session.user.id);
+
+    if (leaveError) console.error("Leave fetch error:", leaveError);
+
+    // Update States
+    setProfile(userProfile);
+    setShifts(shiftData || []);
+    setLeaves(leaveData || []);
+    setLoading(false);
+  };
+  
+  // ... rest of your code
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -84,16 +94,6 @@ export default function StaffDashboard() {
     }
   }
 
-  let totalWorkingHours = 0
-  let totalSickHours = 0
-  let totalHolidayHours = 0
-
-  Object.values(shifts).forEach((shift: any) => {
-    const hours = Number(shift.hours)
-    if (shift.status === 'Working') totalWorkingHours += hours
-    if (shift.status === 'Sick') totalSickHours += hours
-    if (shift.status === 'Holiday') totalHolidayHours += hours
-  })
 
   const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate()
   const firstDay = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay() 
@@ -108,55 +108,71 @@ export default function StaffDashboard() {
           userId={profile?.id} 
           userRole={profile?.role} 
         />
-    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         
         {/* Personalized Header */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
+<div>
             <h1 className="text-2xl font-bold text-slate-900">Welcome back, {profile?.full_name?.split(' ')[0] || 'Team Member'}!</h1>
             <p className="text-slate-500 text-sm">{profile?.email}</p>
+            {/* Render the employment type dynamically */}
+            <span className="inline-block mt-2 px-2 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md uppercase tracking-wider">
+              {profile?.employment_type || 'Employee'}
+            </span>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
             {(profile?.role === 'manager' || profile?.role === 'master') && (
               <button onClick={() => router.push('/dashboard/admin')} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition-colors">⚙️ Admin Builder</button>
             )}
             <button onClick={() => router.push('/dashboard/payslip')} className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 px-4 rounded-lg shadow-sm transition-colors">📄 View Payslip</button>
             <button onClick={handleSignOut} className="text-slate-500 hover:text-red-600 font-medium px-2 py-2 transition-colors">Sign Out</button>
           </div>
-        </div>
 
-        {/* Summary Panel */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Scheduled Work</div>
-              <div className="text-2xl font-black text-blue-900">{totalWorkingHours}h</div>
-            </div>
-            <div className="h-10 w-10 bg-blue-50 rounded-full flex items-center justify-center text-xl">💼</div>
-          </div>
-          <div className="p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Approved Holiday</div>
-              <div className="text-2xl font-black text-emerald-900">{totalHolidayHours}h</div>
-            </div>
-            <div className="h-10 w-10 bg-emerald-50 rounded-full flex items-center justify-center text-xl">🌴</div>
-          </div>
-          <div className="p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
-            <div>
-              <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Reported Sick</div>
-              <div className="text-2xl font-black text-red-900">{totalSickHours}h</div>
-            </div>
-            <div className="h-10 w-10 bg-red-50 rounded-full flex items-center justify-center text-xl">🤒</div>
-          </div>
-        </div>
+{/* Summary Panel */}
+<div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+  {/* Scheduled Work */}
+  <div className="p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+    <div>
+      <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Scheduled Work</div>
+      <div className="text-2xl font-black text-blue-900">{stats.scheduled}h</div>
+    </div>
+    <div className="h-10 w-10 bg-blue-50 rounded-full flex items-center justify-center text-xl">💼</div>
+  </div>
+
+  {/* Overtime */}
+  <div className="p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+    <div>
+      <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Overtime</div>
+      <div className="text-2xl font-black text-indigo-600">{stats.overtime}h</div>
+    </div>
+    <div className="h-10 w-10 bg-indigo-50 rounded-full flex items-center justify-center text-xl">⚡</div>
+  </div>
+
+  {/* Approved Holiday */}
+  <div className="p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+    <div>
+      <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Approved Holiday</div>
+      <div className="text-2xl font-black text-emerald-900">{stats.holiday}h</div>
+    </div>
+    <div className="h-10 w-10 bg-emerald-50 rounded-full flex items-center justify-center text-xl">🌴</div>
+  </div>
+
+  {/* Reported Sick */}
+  <div className="p-4 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+    <div>
+      <div className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Reported Sick</div>
+      <div className="text-2xl font-black text-red-900">{stats.sick}h</div>
+    </div>
+    <div className="h-10 w-10 bg-red-50 rounded-full flex items-center justify-center text-xl">🤒</div>
+  </div>
+</div>
 
         <SwapRequests userRole={profile?.role ?? 'staff'} />
 
         {/* Roster Calendar */}
-<div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-  <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Your Roster</h2>
-  <TeamCalendar userRole={profile?.role} userId={profile?.id} />
-</div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+          <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Your Roster</h2>
+          <TeamCalendar userRole={profile?.role} userId={profile?.id} />
+        </div>
       </div>
     </div>
   )

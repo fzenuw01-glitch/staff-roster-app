@@ -27,14 +27,14 @@ export default function StaffDashboard() {
     fetchUserDataAndShifts()
   }, [])
 
-  // Memoize displayedShifts to prevent infinite re-render loops caused by new array references on every render
+  // Memoize displayedShifts to prevent infinite re-render loops
   const displayedShifts = useMemo(() => {
     return selectedStaffFilter === 'all'
       ? shifts
       : shifts.filter(shift => shift.user_id === selectedStaffFilter)
   }, [shifts, selectedStaffFilter])
 
-  // 2. Recalculate stats whenever displayedShifts, leaves, profile, or the current month updates
+  // 2. Recalculate stats whenever displayedShifts, leaves, profile, or currentMonth updates
   useEffect(() => {
     if (profile && displayedShifts.length >= 0) {
       const viewStartDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
@@ -65,7 +65,6 @@ export default function StaffDashboard() {
     if (profileError) console.error("Profile error:", profileError)
     setProfile(userProfile)
 
-    // If manager, master, or admin, fetch all staff and all company shifts/leaves
     const isAdminOrManager = userProfile?.role === 'manager' || userProfile?.role === 'master' || userProfile?.role === 'admin'
 
     if (isAdminOrManager) {
@@ -88,8 +87,6 @@ export default function StaffDashboard() {
 
     setLoading(false)
   }
-
-  const TeamCalendarWithShifts = TeamCalendar as any
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
@@ -170,7 +167,7 @@ export default function StaffDashboard() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4">
             <h2 className="text-lg font-bold text-slate-800">Team Roster</h2>
 
-            {/* Staff View Filter Dropdown (Manager/Admin Only) */}
+            {/* Staff View Filter Dropdown */}
             {(profile?.role === 'manager' || profile?.role === 'master' || profile?.role === 'admin') && (
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-500 uppercase">View Roster For:</label>
@@ -193,10 +190,9 @@ export default function StaffDashboard() {
             )}
           </div>
 
-          <TeamCalendarWithShifts 
+          <TeamCalendar 
             userRole={profile?.role} 
             userId={profile?.id} 
-            shifts={displayedShifts}
           />
         </div>
 

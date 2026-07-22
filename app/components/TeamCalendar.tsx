@@ -11,6 +11,13 @@ const localizer = momentLocalizer(moment);
 export default function TeamCalendar({ userRole, userId }: { userRole: string, userId: string }) {
   const [events, setEvents] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
+
+  const [patternType, setPatternType] = useState('single');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [daysOn, setDaysOn] = useState(4);
+  const [daysOff, setDaysOff] = useState(4);
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -152,16 +159,61 @@ export default function TeamCalendar({ userRole, userId }: { userRole: string, u
     let dbError = null;
     
     if (formData.type === 'shift') {
-      const payload = {
-        user_id: formData.user_id,
-        date: formData.date,
-        rostered_start: formData.rostered_start,
-        rostered_end: formData.rostered_end
-      };
       if (modalMode === 'create') {
-        const { error } = await supabase.from('daily_shifts').insert([payload]);
-        dbError = error;
+        
+        // --- NEW RECURRING PATTERN LOGIC ---
+        if (patternType === 'rolling') {
+          const { error } = await supabase.rpc('generate_rolling_shifts', {
+            p_user_id: formData.user_id,
+            p_start_date: startDate, // Make sure you added these state variables!
+            p_end_date: endDate,
+            p_days_on: daysOn,
+            p_days_off: daysOff,
+            p_rostered_start: formData.rostered_start,
+            p_rostered_end: formData.rostered_end,
+            p_status: 'Working',
+            p_hours: 8.0 // Or calculate based on start/end time
+          });
+          dbError = error;
+
+        } else if (patternType === 'weekly') {
+          const promises = selectedDays.map(dayOfWeek => 
+            supabase.rpc('generate_recurring_shifts', {
+              p_user_id: formData.user_id,
+              p_start_date: startDate,
+              p_end_date: endDate,
+              p_day_of_week: dayOfWeek,
+              p_rostered_start: formData.rostered_start,
+              p_rostered_end: formData.rostered_end,
+              p_status: 'Working',
+              p_hours: 8.0
+            })
+          );
+          const results = await Promise.all(promises);
+          // Catch the first error if any occur
+          const firstError = results.find(res => res.error);
+          if (firstError) dbError = firstError.error;
+
+        } else {
+          // --- ORIGINAL SINGLE SHIFT LOGIC ---
+          const payload = {
+            user_id: formData.user_id,
+            date: formData.date,
+            rostered_start: formData.rostered_start,
+            rostered_end: formData.rostered_end
+          };
+          const { error } = await supabase.from('daily_shifts').insert([payload]);
+          dbError = error;
+        }
+
       } else {
+        // Original UPDATE logic
+        const payload = {
+          user_id: formData.user_id,
+          date: formData.date,
+          rostered_start: formData.rostered_start,
+          rostered_end: formData.rostered_end
+        };
         const { error } = await supabase.from('daily_shifts').update(payload).eq('id', selectedEvent.id);
         dbError = error;
       }
@@ -332,6 +384,74 @@ export default function TeamCalendar({ userRole, userId }: { userRole: string, u
                         <input type="time" className="w-full p-2 border rounded bg-slate-50"
                           value={formData.rostered_end} onChange={(e) => setFormData({...formData, rostered_end: e.target.value})} />
                       </div>
+                      {/* --- NEW PATTERN SELECTOR UI --- */}
+        {modalMode === 'create' && (
+          <div className="mt-4 space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Shift Pattern</label>
+              <select 
+                className="w-full p-2 border rounded bg-slate-50"
+                value={patternType}
+                onChange={(e) => setPatternType(e.target.value)}
+              >
+                <option value="single">Single Shift</option>
+                <option value="weekly">Weekly Pattern (e.g., Every Mon/Wed)</option>
+                <option value="rolling">Rolling Cycle (e.g., 4 On / 4 Off)</option>
+              </select>
+            </div>
+
+            {/* Date Horizon (Shows for both pattern types) */}
+            {patternType !== 'single' && (
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pattern Start Date</label>
+                  <input type="date" className="w-full p-2 border rounded bg-slate-50" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pattern End Date</label>
+                  <input type="date" className="w-full p-2 border rounded bg-slate-50" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {/* Weekly Pattern Controls */}
+            {patternType === 'weekly' && (
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Days of the Week</label>
+                <div className="flex flex-wrap gap-2">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
+                    <label key={day} className="flex items-center gap-1 text-sm bg-slate-100 px-2 py-1 rounded cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedDays.includes(index)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedDays([...selectedDays, index]);
+                          else setSelectedDays(selectedDays.filter(d => d !== index));
+                        }}
+                      />
+                      {day}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Rolling Pattern Controls */}
+            {patternType === 'rolling' && (
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Days On</label>
+                  <input type="number" min="1" className="w-full p-2 border rounded bg-slate-50" value={daysOn} onChange={e => setDaysOn(parseInt(e.target.value))} />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Days Off</label>
+                  <input type="number" min="1" className="w-full p-2 border rounded bg-slate-50" value={daysOff} onChange={e => setDaysOff(parseInt(e.target.value))} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* --- END NEW PATTERN SELECTOR UI --- */}
                     </div>
                   ) : (
                     <div className="flex gap-4">

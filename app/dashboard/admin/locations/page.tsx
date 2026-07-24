@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr"; // Back to client-safe import
 
+  // Initialize the client component client safely in the browser
+  const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
 export default function LocationManager() {
   const [name, setName] = useState("");
   const [lat, setLat] = useState("");
@@ -10,12 +16,6 @@ export default function LocationManager() {
   const [radius, setRadius] = useState(50);
   const [loading, setLoading] = useState(false);
   const [locations, setLocations] = useState<any[]>([]);
-
-  // Initialize the client component client safely in the browser
-  const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
   const fetchLocations = async () => {
     // Use RPC or fetch with cache-control if needed; Postgrest client doesn't expose headers on query builder

@@ -7,6 +7,7 @@ import CurrentShiftAction from '../components/CurrentShiftAction'
 import SwapRequests from '../components/SwapRequests'
 import TeamCalendar from '../components/TeamCalendar'
 import { calculateDashboardStats } from '@/lib/stats'
+import GenerateRosterButton from '@/app/components/GenerateRosterButton'
 
 export default function StaffDashboard() {
   const supabase = createClient()
@@ -17,15 +18,24 @@ export default function StaffDashboard() {
   const [shifts, setShifts] = useState<any[]>([]) 
   const [leaves, setLeaves] = useState<any[]>([])
   const [stats, setStats] = useState({ scheduled: 0, holiday: 0, sick: 0, overtime: 0 })
-  const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 7, 1)) // Default to August 2026
   const [loading, setLoading] = useState(true)
   const [allStaff, setAllStaff] = useState<any[]>([])
   const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all')
+  const [selectedMonth, setSelectedMonth] = useState('2026-08')
 
-  // 1. Trigger data fetch on mount
+  // Sync selectedMonth state changes with currentMonth Date object
+  useEffect(() => {
+    const [year, month] = selectedMonth.split('-')
+    if (year && month) {
+      setCurrentMonth(new Date(parseInt(year), parseInt(month) - 1, 1))
+    }
+  }, [selectedMonth])
+
+  // 1. Trigger data fetch on mount and when selectedMonth changes
   useEffect(() => {
     fetchUserDataAndShifts()
-  }, [])
+  }, [selectedMonth])
 
   // Memoize displayedShifts to prevent infinite re-render loops
   const displayedShifts = useMemo(() => {
@@ -101,7 +111,7 @@ export default function StaffDashboard() {
         userId={profile?.id} 
         userRole={profile?.role} 
       />
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="max-w-full mx-auto space-y-6">
         
         {/* Personalized Header */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -162,6 +172,28 @@ export default function StaffDashboard() {
 
         <SwapRequests userRole={profile?.role ?? 'staff'} />
 
+        {/* Roster Controls: Month Picker & Generate Roster */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <label className="text-xs font-bold text-slate-500 uppercase">Select Month:</label>
+            <input 
+              type="month" 
+              value={selectedMonth} 
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            />
+          </div>
+          {(() => {
+            const GenerateRosterButtonWithProps = GenerateRosterButton as any
+            return (
+              <GenerateRosterButtonWithProps
+                selectedMonth={selectedMonth}
+                onRosterGenerated={fetchUserDataAndShifts}
+              />
+            )
+          })()}
+        </div>
+
         {/* Roster Calendar Section */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4">
@@ -193,6 +225,7 @@ export default function StaffDashboard() {
           <TeamCalendar 
             userRole={profile?.role} 
             userId={profile?.id} 
+            activeMonth={selectedMonth}
           />
         </div>
 

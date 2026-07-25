@@ -10,6 +10,7 @@ export default function RosterEditor({ userId }: { userId: string }) {
   // Initialize state based on the first item in the config
   const [type, setType] = useState(SHIFT_TYPES[0].value);
   const [isPaid, setIsPaid] = useState(SHIFT_TYPES[0].defaultPaid);
+  const [isAdditional, setIsAdditional] = useState(false); // Option to add instead of overwrite
   
   const [loading, setLoading] = useState(false);
 
@@ -29,14 +30,32 @@ export default function RosterEditor({ userId }: { userId: string }) {
 
   const handleSave = async () => {
     setLoading(true);
-    const { error } = await supabase
-      .from('daily_shifts')
-      .upsert({
-        user_id: userId,
-        date: date,
-        shift_type: type,
-        is_paid: isPaid,
-      });
+
+    let error;
+
+    if (isAdditional) {
+      // Insert a new record without conflicting or overwriting existing day entries
+      const { error: insertError } = await supabase
+        .from('daily_shifts')
+        .insert({
+          user_id: userId,
+          date: date,
+          status: type,
+          is_paid: isPaid,
+        });
+      error = insertError;
+    } else {
+      // Overwrite/upsert based on the unique user_id and date constraint
+      const { error: upsertError } = await supabase
+        .from('daily_shifts')
+        .upsert({
+          user_id: userId,
+          date: date,
+          status: type,
+          is_paid: isPaid,
+        }, { onConflict: 'user_id,date' });
+      error = upsertError;
+    }
 
     if (error) alert("Error saving shift: " + error.message);
     else alert("Shift/Absence saved successfully!");
@@ -75,11 +94,20 @@ export default function RosterEditor({ userId }: { userId: string }) {
           />
           Paid Entry
         </label>
+
+        <label className="flex items-center gap-2">
+          <input 
+            type="checkbox" 
+            checked={isAdditional} 
+            onChange={(e) => setIsAdditional(e.target.checked)} 
+          />
+          Add as additional shift on this day
+        </label>
         
         <button 
           onClick={handleSave} 
           disabled={loading}
-          className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700 disabled:opacity-50"
+          className="bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700 disabled:opacity-50 md:col-span-2"
         >
           {loading ? "Saving..." : "Save Entry"}
         </button>

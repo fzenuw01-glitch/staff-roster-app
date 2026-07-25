@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { generateShifts } from './utils/shiftGenerator';
+import { useRouter } from 'next/navigation';
 
 interface GenerateRosterButtonProps {
   selectedMonth: string;
@@ -12,14 +13,19 @@ export default function GenerateRosterButton({ selectedMonth, onRosterGenerated 
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
-  
+
+  const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
     
     try {
-      // 1. Fetch profiles and their assigned patterns
+      const [year, month] = selectedMonth.split('-').map(Number);
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
+
+      // 1. Fetch profiles and assigned patterns
       const { data: staffList, error: fetchError } = await supabase
         .from('profiles')
         .select(`
@@ -31,19 +37,30 @@ export default function GenerateRosterButton({ selectedMonth, onRosterGenerated 
 
       if (fetchError) throw fetchError;
 
-      const staffAssignments = (staffList ?? []).map((staff: any) => ({
-        staff_id: staff.id,
-        pattern_id: staff.roster_assignments?.[0]?.pattern_id || null,
-      })).filter(staff => staff.pattern_id);
+// 2. Fetch staff roster assignments active for or up to this month's start date
+const { data: staffAssignmentsData, error: staffError } = await supabase
+  .from('roster_assignments')
+  .select('user_id, pattern_id, start_date')
+  .lte('start_date', endDate); // gets assignments starting on or before the end of this month
 
-      // 2. Dynamically calculate start and end dates from the selected month (YYYY-MM)
-      const [year, month] = selectedMonth.split('-').map(Number);
-      const startDate = `${selectedMonth}-01`;
-      // Find the last day of the selected month automatically
-      const lastDay = new Date(year, month, 0).getDate();
-      const endDate = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+if (staffError) throw staffError;
 
-      // 3. Clear any existing shifts for this specific month first
+// If a user has multiple, sort/filter to grab the latest applicable start_date for the month
+const assignmentMap = new Map();
+(staffAssignmentsData ?? []).forEach((assignment: any) => {
+  // Keep the most recent start_date that is <= endDate for each user
+  if (assignment.pattern_id && assignment.start_date <= endDate) {
+    // If multiple exist, you can prioritize the one closest to startDate or latest start_date <= startDate
+    assignmentMap.set(assignment.user_id, assignment.pattern_id);
+  }
+});
+
+const staffAssignments = Array.from(assignmentMap.entries()).map(([user_id, pattern_id]) => ({
+  staff_id: user_id,
+  pattern_id,
+}));
+
+      // 3. Clear existing shifts for this date window
       const { error: deleteError } = await supabase
         .from('daily_shifts')
         .delete()
@@ -52,25 +69,21 @@ export default function GenerateRosterButton({ selectedMonth, onRosterGenerated 
 
       if (deleteError) throw deleteError;
 
-      // 4. Generate new shifts
-      const newShifts = generateShifts(startDate, endDate, staffAssignments);
+      // 4. Generate shifts
+      const newShifts = await generateShifts(startDate, endDate, staffAssignments);
+      const shiftsToInsert = newShifts;
 
-      // 5. Clean up fields not in schema and add the required 'status' field
-      const shiftsToInsert = newShifts.map(({ hours_worked, is_off, ...rest }) => ({
-        ...rest,
-        status: 'scheduled' // Satisfies the database not-null constraint
-      }));
-
-      // 6. Insert into Supabase
+      // 5. Insert into Supabase
       const { error: insertError } = await supabase
-        .from('daily_shifts') 
+        .from('daily_shifts')
         .insert(shiftsToInsert);
 
       if (insertError) throw insertError;
-      
+
       alert(`Roster for ${selectedMonth} successfully generated!`);
       
-      // Trigger data fetch in parent dashboard instead of a full reload
+      // Refresh router and trigger callback to load new shifts into view
+      router.refresh();
       onRosterGenerated();
 
     } catch (error: any) {

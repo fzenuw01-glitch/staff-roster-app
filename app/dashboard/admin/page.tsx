@@ -136,7 +136,12 @@ export default function AdminDashboard() {
       {/* NEW: Calendar Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
         <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Team Roster</h2>
-        <TeamCalendar userRole={profile?.role} userId={profile?.id} activeMonth={new Date().toISOString().slice(0, 7)} />
+        <TeamCalendar
+          userRole={profile?.role}
+          userId={profile?.id}
+          activeMonth={activeMonth}
+          setActiveMonth={setActiveMonth}
+        />
       </div>
 
       {/* Existing Team List */}

@@ -22,7 +22,12 @@ export default function StaffDashboard() {
   const [loading, setLoading] = useState(true)
   const [allStaff, setAllStaff] = useState<any[]>([])
   const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all')
-  const [selectedMonth, setSelectedMonth] = useState('2026-08')
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`; // e.g. "2026-07"
+});
 
   // Sync selectedMonth state changes with currentMonth Date object
   useEffect(() => {
@@ -226,6 +231,7 @@ export default function StaffDashboard() {
             userRole={profile?.role} 
             userId={profile?.id} 
             activeMonth={selectedMonth}
+            setActiveMonth={setSelectedMonth}
           />
         </div>
 

@@ -1,8 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 
-// Localized mock Payroll Engine
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
 const calculateUKPayroll = (hours: number, rate: number) => {
   const grossPay = (hours * rate).toFixed(2);
   const incomeTax = (Number(grossPay) * 0.20).toFixed(2);
@@ -20,27 +25,62 @@ export default function PayslipPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    generatePayslip()
+    fetchPayslipData()
   }, [currentMonth])
 
-  const generatePayslip = async () => {
+  const fetchPayslipData = async () => {
     setLoading(true)
+
+    // 1. Get current logged-in user session
+    const { data: { session } } = await supabase.auth.getSession()
     
-    // Simulating data fetching
-    const userProfile = { id: 'user-123-abc', full_name: 'John Doe', email: 'john@example.com', hourly_rate: 15 }
-    setProfile(userProfile)
+    if (!session) {
+      setLoading(false)
+      return
+    }
 
-    const totalPayable = 160 // Mocked hours
-    setPayableHours(totalPayable)
+    // 2. Fetch user profile from Supabase
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single()
 
-    const calculated = calculateUKPayroll(totalPayable, userProfile.hourly_rate)
-    setPayrollData(calculated)
+    if (profileData) {
+      setProfile(profileData)
+
+      // 3. Calculate start and end date for the selected month to fetch hours
+      const year = currentMonth.getFullYear()
+      const month = currentMonth.getMonth()
+      const startDate = new Date(year, month, 1).toISOString()
+      const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString()
+
+      // 4. Fetch actual shift hours logged for this user in this month
+      // (Assumes you have a table like 'shifts' or 'roster' tracking hours/duration)
+      const { data: shiftsData } = await supabase
+        .from('shifts')
+        .select('hours_worked') // Adjust column name if it differs in your database
+        .eq('user_id', session.user.id)
+        .gte('date', startDate)
+        .lte('date', endDate)
+
+      // Sum up the hours (fallback to 0 if none recorded yet)
+      const totalHours = shiftsData?.reduce((acc, shift) => acc + (Number(shift.hours_worked) || 0), 0) || 0
+      setPayableHours(totalHours)
+
+      const rate = profileData.hourly_rate || 0
+      const calculated = calculateUKPayroll(totalHours, rate)
+      setPayrollData(calculated)
+    }
+
     setLoading(false)
   }
 
   const handlePrint = () => window.print()
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-500">Loading Payslip...</div>
+
+  if (!profile) return <div className="p-10 text-center font-bold text-red-500">Please log in to view your payslip.</div>
 
   return (
     <div className="min-h-screen bg-slate-100 p-8 print:p-0 print:bg-white flex justify-center">
@@ -89,8 +129,8 @@ export default function PayslipPage() {
             <div className="grid grid-cols-12 gap-4 items-center mb-4 text-sm font-medium">
               <div className="col-span-5 text-slate-800">Basic Pay</div>
               <div className="col-span-2 text-right">{payableHours}h</div>
-              <div className="col-span-2 text-right">{profile?.hourly_rate?.toFixed(2)}</div>
-              <div className="col-span-3 text-right font-semibold text-slate-900">{payrollData?.grossPay}</div>
+              <div className="col-span-2 text-right">£{profile?.hourly_rate?.toFixed(2)}</div>
+              <div className="col-span-3 text-right font-semibold text-slate-900">£{payrollData?.grossPay}</div>
             </div>
           </div>
 

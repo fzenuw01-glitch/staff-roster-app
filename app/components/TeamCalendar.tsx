@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import moment from 'moment';
 
@@ -10,12 +10,16 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
   const [staffList, setStaffList] = useState<any[]>([]);
   const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all');
   const [notification, setNotification] = useState<string | null>(null);
+  
+  // Reference for the table container to enable smooth horizontal day scrolling
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  
   // Initialize to today, or the start of activeMonth
-const [viewStartDate, setViewStartDate] = useState(
-  moment(`${activeMonth}-01`, 'YYYY-MM-DD').isSame(moment(), 'month')
-    ? moment().format('YYYY-MM-DD')
-    : `${activeMonth}-01`
-);
+  const [viewStartDate, setViewStartDate] = useState(
+    moment(`${activeMonth}-01`, 'YYYY-MM-DD').isSame(moment(), 'month')
+      ? moment().format('YYYY-MM-DD')
+      : `${activeMonth}-01`
+  );
 
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -30,18 +34,16 @@ const [viewStartDate, setViewStartDate] = useState(
     shift?: any;
   } | null>(null);
 
-const [editForm, setEditForm] = useState({
-  rostered_start: '09:00',
-  rostered_end: '17:00',
-  status: 'scheduled',
-  apply_until: '',
-  repeat_type: 'none', // 'none' | 'daily' | 'weekly' | 'fortnightly' | 'monthly' | 'custom'
-  repeat_interval: 1,  // e.g., every X days/weeks
-});
+  const [editForm, setEditForm] = useState({
+    rostered_start: '09:00',
+    rostered_end: '17:00',
+    status: 'scheduled',
+    apply_until: '',
+    repeat_type: 'none', // 'none' | 'daily' | 'weekly' | 'fortnightly' | 'monthly' | 'custom'
+    repeat_interval: 1,  // e.g., every X days/weeks
+  });
 
   const [clipboard, setClipboard] = useState<any>(null);
-
-  const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
 
   const isManager = userRole === 'manager' || userRole === 'master' || userRole === 'admin';
 
@@ -62,7 +64,7 @@ const [editForm, setEditForm] = useState({
     const todayStr = moment().format('YYYY-MM-DD');
 
     // Fetch staff profiles
-    const { data: profiles } = await supabase.from('profiles').select('id, full_name, employment_type');
+   const { data: profiles } = await supabase.from('profiles').select('id, full_name, employment_type');
     
     // Fetch shifts for the month
     let shiftQuery = supabase
@@ -144,28 +146,28 @@ const [editForm, setEditForm] = useState({
   }, [shifts, userId]);
 
   // Days in current month array
-// Days in grid array (Anchored to Today)
-const daysInMonth = useMemo(() => {
-  if (!viewStartDate) return [];
-  
-  const days = [];
-  let current = moment(viewStartDate, 'YYYY-MM-DD');
-  
-  // Show a continuous 31-day rolling window crossing months smoothly
-  const fixedWindowSize = 31; 
+  const daysInMonth = useMemo(() => {
+    const targetMonth = activeMonth || moment().format('YYYY-MM');
+    const startOfMonth = moment(`${targetMonth}-01`, 'YYYY-MM-DD');
+    
+    if (!startOfMonth.isValid()) return [];
 
-  for (let i = 0; i < fixedWindowSize; i++) {
-    days.push({
-      dayNum: current.date(),
-      dateStr: current.format('YYYY-MM-DD'),
-      dayName: current.format('ddd'),
-      isWeekend: current.day() === 0 || current.day() === 6,
-    });
-    current.add(1, 'day');
-  }
-  
-  return days;
-}, [viewStartDate]);
+    const daysInCurrentMonth = startOfMonth.daysInMonth();
+    const days = [];
+    let current = startOfMonth.clone();
+
+    for (let i = 0; i < daysInCurrentMonth; i++) {
+      days.push({
+        dayNum: current.date(),
+        dateStr: current.format('YYYY-MM-DD'),
+        dayName: current.format('ddd'),
+        isWeekend: current.day() === 0 || current.day() === 6,
+      });
+      current.add(1, 'day');
+    }
+
+    return days;
+  }, [activeMonth]);
 
   // Month navigation handlers
   const handlePrevMonth = () => {
@@ -182,17 +184,30 @@ const daysInMonth = useMemo(() => {
     setViewStartDate(`${next}-01`);
   };
 
-const handlePrevDay = () => {
-  const newDate = moment(viewStartDate, 'YYYY-MM-DD').subtract(1, 'day').format('YYYY-MM-DD');
-  setViewStartDate(newDate);
-  setActiveMonth(moment(newDate, 'YYYY-MM-DD').format('YYYY-MM'));
-};
+  // Day ticker navigation handlers (moves by a single day and syncs activeMonth if cross-month)
+  const handlePrevDay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newDate = moment(viewStartDate, 'YYYY-MM-DD').subtract(1, 'day').format('YYYY-MM-DD');
+    setViewStartDate(newDate);
+    const newMonth = moment(newDate, 'YYYY-MM-DD').format('YYYY-MM');
+    if (newMonth !== activeMonth) {
+      setActiveMonth(newMonth);
+    } else if (tableContainerRef.current) {
+      tableContainerRef.current.scrollBy({ left: -105, behavior: 'smooth' });
+    }
+  };
 
-const handleNextDay = () => {
-  const newDate = moment(viewStartDate, 'YYYY-MM-DD').add(1, 'day').format('YYYY-MM-DD');
-  setViewStartDate(newDate);
-  setActiveMonth(moment(newDate, 'YYYY-MM-DD').format('YYYY-MM'));
-};
+  const handleNextDay = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newDate = moment(viewStartDate, 'YYYY-MM-DD').add(1, 'day').format('YYYY-MM-DD');
+    setViewStartDate(newDate);
+    const newMonth = moment(newDate, 'YYYY-MM-DD').format('YYYY-MM');
+    if (newMonth !== activeMonth) {
+      setActiveMonth(newMonth);
+    } else if (tableContainerRef.current) {
+      tableContainerRef.current.scrollBy({ left: 105, behavior: 'smooth' });
+    }
+  };
 
   const handleCellClick = (staffMember: any, dateStr: string, existingShiftData?: any) => {
     if (!isManager) return;
@@ -204,7 +219,7 @@ const handleNextDay = () => {
       shift: existingShiftData,
     });
 
-    setExistingShift(existingShiftData || null);
+    setExistingShift(existingShiftData ? { ...existingShiftData } : null);
     setExtraShifts([]);
 
     setEditForm({
@@ -238,89 +253,89 @@ const handleNextDay = () => {
     }
   };
 
-const handleSaveShiftsWithRecurrence = async () => {
-  if (!selectedCell) return;
-  
-  // 1. If we are editing an existing shift record, update it first
-  if (existingShift && existingShift.id) {
-    const { error: updateError } = await supabase
-      .from('daily_shifts')
-      .update({
-        rostered_start: existingShift.rostered_start,
-        rostered_end: existingShift.rostered_end,
-        status: existingShift.status,
-      })
-      .eq('id', existingShift.id);
+  const handleSaveShiftsWithRecurrence = async () => {
+    if (!selectedCell) return;
+    
+    // 1. If we are editing an existing shift record, update it first
+    if (existingShift && existingShift.id) {
+      const { error: updateError } = await supabase
+        .from('daily_shifts')
+        .update({
+          rostered_start: existingShift.rostered_start,
+          rostered_end: existingShift.rostered_end,
+          status: existingShift.status,
+        })
+        .eq('id', existingShift.id);
 
-    if (updateError) {
-      setNotification(`Error updating shift: ${updateError.message}`);
-      return;
+      if (updateError) {
+        setNotification(`Error updating shift: ${updateError.message}`);
+        return;
+      }
     }
-  }
 
-  // 2. If there are extra shifts added, insert them as new rows
-  if (extraShifts.length > 0) {
-    const extraPayloads = extraShifts.map(extra => ({
-      user_id: selectedCell.userId,
-      date: selectedCell.date,
-      rostered_start: extra.rostered_start,
-      rostered_end: extra.rostered_end,
-      status: extra.status,
-    }));
+    // 2. If there are extra shifts added, insert them as new rows
+    if (extraShifts.length > 0) {
+      const extraPayloads = extraShifts.map(extra => ({
+        user_id: selectedCell.userId,
+        date: selectedCell.date,
+        rostered_start: extra.rostered_start,
+        rostered_end: extra.rostered_end,
+        status: extra.status,
+      }));
 
-    const { error: insertExtraError } = await supabase
-      .from('daily_shifts')
-      .insert(extraPayloads);
+      const { error: insertExtraError } = await supabase
+        .from('daily_shifts')
+        .insert(extraPayloads);
 
-    if (insertExtraError) {
-      setNotification(`Error inserting extra shifts: ${insertExtraError.message}`);
-      return;
+      if (insertExtraError) {
+        setNotification(`Error inserting extra shifts: ${insertExtraError.message}`);
+        return;
+      }
     }
-  }
 
-  // 3. Handle standard form recurrence saves if applicable
-  const payloads = [];
-  let currentDate = moment(selectedCell.date);
-  const endDate = editForm.apply_until ? moment(editForm.apply_until) : currentDate;
+    // 3. Handle standard form recurrence saves if applicable
+    const payloads = [];
+    let currentDate = moment(selectedCell.date);
+    const endDate = editForm.apply_until ? moment(editForm.apply_until) : currentDate;
 
-  while (currentDate.isSameOrBefore(endDate)) {
-    payloads.push({
-      user_id: selectedCell.userId,
-      date: currentDate.format('YYYY-MM-DD'),
-      rostered_start: editForm.rostered_start,
-      rostered_end: editForm.rostered_end,
-      status: editForm.status,
-    });
+    while (currentDate.isSameOrBefore(endDate)) {
+      payloads.push({
+        user_id: selectedCell.userId,
+        date: currentDate.format('YYYY-MM-DD'),
+        rostered_start: editForm.rostered_start,
+        rostered_end: editForm.rostered_end,
+        status: editForm.status,
+      });
 
-    if (editForm.repeat_type === 'daily') {
-      currentDate.add(Number(editForm.repeat_interval) || 1, 'days');
-    } else if (editForm.repeat_type === 'weekly') {
-      currentDate.add(Number(editForm.repeat_interval) || 1, 'weeks');
-    } else if (editForm.repeat_type === 'fortnightly') {
-      currentDate.add(2, 'weeks');
-    } else if (editForm.repeat_type === 'monthly') {
-      currentDate.add(1, 'months');
-    } else {
-      break; 
+      if (editForm.repeat_type === 'daily') {
+        currentDate.add(Number(editForm.repeat_interval) || 1, 'days');
+      } else if (editForm.repeat_type === 'weekly') {
+        currentDate.add(Number(editForm.repeat_interval) || 1, 'weeks');
+      } else if (editForm.repeat_type === 'fortnightly') {
+        currentDate.add(2, 'weeks');
+      } else if (editForm.repeat_type === 'monthly') {
+        currentDate.add(1, 'months');
+      } else {
+        break; 
+      }
     }
-  }
 
-  if (payloads.length > 0 && !existingShift) {
-    const { error } = await supabase
-      .from('daily_shifts')
-      .insert(payloads);
+    if (payloads.length > 0 && !existingShift) {
+      const { error } = await supabase
+        .from('daily_shifts')
+        .insert(payloads);
 
-    if (error) {
-      setNotification(`Error saving shifts: ${error.message}`);
-      return;
+      if (error) {
+        setNotification(`Error saving shifts: ${error.message}`);
+        return;
+      }
     }
-  }
 
-  fetchData();
-  setSelectedCell(null);
-  setExistingShift(null);
-  setExtraShifts([]);
-};
+    fetchData();
+    setSelectedCell(null);
+    setExistingShift(null);
+    setExtraShifts([]);
+  };
 
   const displayedStaff = useMemo(() => {
     if (!isManager) {
@@ -358,39 +373,39 @@ const handleSaveShiftsWithRecurrence = async () => {
 
       {/* Top Controls & Hours Summary Bar */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-<div className="flex items-center gap-2">
-  <label className="text-xs font-bold text-slate-500 uppercase">Roster Month:</label>
-  
-  <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
-    {/* Previous Month Arrow */}
-    <button
-      type="button"
-      onClick={handlePrevMonth}
-      className="px-3 py-2 text-slate-600 hover:bg-slate-100 transition-colors border-r border-slate-200 font-bold cursor-pointer"
-      title="Previous Month"
-    >
-      ‹
-    </button>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-bold text-slate-500 uppercase">Roster Month:</label>
+          
+          <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
+            {/* Previous Month Arrow */}
+            <button
+              type="button"
+              onClick={handlePrevMonth}
+              className="px-3 py-2 text-slate-600 hover:bg-slate-100 transition-colors border-r border-slate-200 font-bold cursor-pointer"
+              title="Previous Month"
+            >
+              ‹
+            </button>
 
-    {/* Month Input */}
-    <input
-      type="month"
-      value={activeMonth || ''}
-      onChange={(e) => setActiveMonth(e.target.value)}
-      className="px-3 py-2 bg-slate-50 text-slate-800 text-sm font-semibold focus:outline-none cursor-pointer"
-    />
+            {/* Month Input */}
+            <input
+              type="month"
+              value={activeMonth || ''}
+              onChange={(e) => setActiveMonth(e.target.value)}
+              className="px-3 py-2 bg-slate-50 text-slate-800 text-sm font-semibold focus:outline-none cursor-pointer"
+            />
 
-    {/* Next Month Arrow */}
-    <button
-      type="button"
-      onClick={handleNextMonth}
-      className="px-3 py-2 text-slate-600 hover:bg-slate-100 transition-colors border-l border-slate-200 font-bold cursor-pointer"
-      title="Next Month"
-    >
-      ›
-    </button>
-  </div>
-</div>
+            {/* Next Month Arrow */}
+            <button
+              type="button"
+              onClick={handleNextMonth}
+              className="px-3 py-2 text-slate-600 hover:bg-slate-100 transition-colors border-l border-slate-200 font-bold cursor-pointer"
+              title="Next Month"
+            >
+              ›
+            </button>
+          </div>
+        </div>
 
         <div className="flex items-center gap-6 text-sm font-semibold text-slate-700">
           <div className="bg-indigo-50 px-4 py-2 rounded-lg border border-indigo-100 shadow-2xs">
@@ -417,36 +432,35 @@ const handleSaveShiftsWithRecurrence = async () => {
 
       {/* Matrix View */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div ref={tableContainerRef} className="overflow-x-auto scroll-smooth">
           <table className="w-full border-collapse text-left text-xs">
             <thead>
               <tr className="bg-slate-900 text-white border-b border-slate-200">
-{/* Inside your <thead> */}
-<th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider text-white bg-slate-900 sticky left-0 z-10">
-  <div className="flex items-center justify-between">
-    <span>Staff Member</span>
-    
-    {/* Date Ticker Arrows */}
-    <div className="flex items-center gap-1 pr-2 text-lg">
-<button 
-  type="button" 
-  onClick={handlePrevDay} 
-  className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer" 
-  title="Previous Day"
->
-  ‹
-</button>
-<button 
-  type="button" 
-  onClick={handleNextDay} 
-  className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer" 
-  title="Next Day"
->
-  ›
-</button>
-    </div>
-  </div>
-</th>
+                <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider text-white bg-slate-900 sticky left-0 z-10">
+                  <div className="flex items-center justify-between">
+                    <span>Staff Member</span>
+                    
+                    {/* Date Ticker Arrows */}
+                    <div className="flex items-center gap-1 pr-2 text-lg">
+                      <button 
+                        type="button" 
+                        onClick={handlePrevDay} 
+                        className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer select-none" 
+                        title="Previous Day"
+                      >
+                        ‹
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={handleNextDay} 
+                        className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer select-none" 
+                        title="Next Day"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  </div>
+                </th>
                 {daysInMonth.map(day => (
                   <th 
                     key={day.dateStr}
@@ -683,6 +697,7 @@ const handleSaveShiftsWithRecurrence = async () => {
             <div className="flex justify-between items-center pt-4 border-t mt-4">
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={handleCopy}
                   className="px-3 py-2 text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg font-medium transition-colors shadow-sm border border-slate-200"
                 >
@@ -690,6 +705,7 @@ const handleSaveShiftsWithRecurrence = async () => {
                 </button>
                 {clipboard && (
                   <button
+                    type="button"
                     onClick={handlePaste}
                     className="px-3 py-2 text-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg font-medium transition-colors shadow-sm"
                   >
@@ -716,6 +732,7 @@ const handleSaveShiftsWithRecurrence = async () => {
                   + Add Extra Shift
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setSelectedCell(null);
                     setExistingShift(null);
@@ -726,6 +743,7 @@ const handleSaveShiftsWithRecurrence = async () => {
                   Cancel
                 </button>
                 <button
+                  type="button"
                   onClick={handleSaveShiftsWithRecurrence}
                   className="px-4 py-2 text-sm bg-indigo-600 text-white font-medium hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
                 >

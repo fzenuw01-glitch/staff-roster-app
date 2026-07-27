@@ -18,30 +18,26 @@ export default function CurrentShiftAction({ userId, userRole }: { userId: strin
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  useEffect(() => {
-    const fetchTodayShift = async () => {
-      const today = new Date().toISOString().split('T')[0];
-      
-      // Fetch all shifts for today without single/maybeSingle constraints
-      const { data, error } = await supabase
-        .from('daily_shifts')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('date', today);
+useEffect(() => {
+  const fetchTodayShift = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('daily_shifts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', today);
 
-      if (error) {
-        console.error("Shift fetch error:", error);
-        return;
-      }
-      
-      // Find the first shift that hasn't been clocked into yet, or fallback to the first entry
-      const activeShift = data?.find((s: Shift) => !s.actual_start) || data?.[0] || null;
-      
-      setShift(activeShift);
-    };
+    if (error) {
+      console.error("Shift fetch error:", error);
+      return;
+    }
+    
+    const active = data?.find((s: Shift) => !s.actual_start) || data?.[0] || null;
+    setShift(active);
+  };
 
-    fetchTodayShift();
-  }, [userId]);
+  fetchTodayShift();
+}, [userId]); // Ensure dependencies list is exact and doesn't include 'shift' or 'setShift'
 
   if (!shift || shift.actual_start) return null; // Don't show if no shift or already clocked in
 

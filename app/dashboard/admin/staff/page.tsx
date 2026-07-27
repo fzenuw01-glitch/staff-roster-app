@@ -1,231 +1,337 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
-import { createBrowserClient } from '@supabase/ssr';
-
-interface Profile {
-  id: string;
-  full_name: string;
-  email: string;
-  role: string;
-  employment_type: string;
-}
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '../../../../lib/supabase' // adjust relative path if needed
 
 export default function StaffManagementPage() {
-  // Add Staff State
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [rate, setRate] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [message, setMessage] = useState('');
+  const supabase = createClient()
+  const router = useRouter()
 
-  // Profiles List State
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true)
+  const [staff, setStaff] = useState<any[]>([])
+  const [savingId, setSavingId] = useState<string | null>(null)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
-  const fetchProfiles = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, email, role, employment_type')
-      .order('full_name', { ascending: true });
-
-    if (error) {
-      console.error('Error fetching profiles:', error.message);
-    } else if (data) {
-      setProfiles(data);
-    }
-    setLoading(false);
-  };
+  // Add new staff form state
+  const [isAddingStaff, setIsAddingStaff] = useState(false)
+  const [newStaffName, setNewStaffName] = useState('')
+  const [newStaffEmail, setNewStaffEmail] = useState('')
+  const [newStaffRate, setNewStaffRate] = useState(12.0)
+  const [newStaffHours, setNewStaffHours] = useState(160)
+  const [isInviting, setIsInviting] = useState(false)
 
   useEffect(() => {
-    fetchProfiles();
-  }, []);
+    fetchStaff()
+  }, [])
 
-  const handleAddStaff = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAdding(true);
-    setMessage('');
+  const fetchStaff = async () => {
+    setLoading(true)
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return router.push('/')
 
-    try {
-      const res = await fetch('/api/staff/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, rate: parseFloat(rate) }),
-      });
+    // Fetch profile to verify permissions
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single()
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to add staff');
-
-      setMessage('Staff member created and temporary password email sent successfully!');
-      setName('');
-      setEmail('');
-      setRate('');
-      fetchProfiles(); // Refresh the table list automatically
-    } catch (err: any) {
-      setMessage('Error: ' + err.message);
-    } finally {
-      setAdding(false);
+    const allowedRoles = ['admin', 'master', 'developer']
+    if (!profile || !allowedRoles.includes(profile.role)) {
+      alert("Access Denied.")
+      return router.push('/dashboard')
     }
-  };
 
-  const handleUpdate = async (id: string, newRole: string, newType: string) => {
-    setUpdatingId(id);
+    // Fetch all staff profiles
+    const { data: staffData } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('full_name', { ascending: true })
+
+    // Initialize local editable state mapping
+    if (staffData) {
+      setStaff(staffData.map(s => ({ ...s })) )
+    }
+    setLoading(false)
+  }
+
+  // Handle local row changes before saving
+  const handleFieldChange = (id: string, field: string, value: any) => {
+    setStaff(prev => prev.map(user => user.id === id ? { ...user, [field]: value } : user))
+  }
+
+  // Save modified row to Supabase
+  const handleSaveRow = async (user: any) => {
+    setSavingId(user.id)
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ role: newRole, employment_type: newType })
-        .eq('id', id);
+        .update({
+          full_name: user.full_name,
+          email: user.email,
+          role: user.role,
+          employment_type: user.employment_type,
+          hourly_rate: Number(user.hourly_rate),
+          contracted_hours: Number(user.contracted_hours)
+        })
+        .eq('id', user.id)
 
-      if (error) throw error;
-
-      setProfiles(profiles.map(p => p.id === id ? { ...p, role: newRole, employment_type: newType } : p));
-      alert('Staff details updated successfully!');
+      if (error) throw error
+      alert(`Successfully updated ${user.full_name || 'Staff Member'}!`)
     } catch (err: any) {
-      alert(err.message || 'Failed to update staff.');
+      alert(`Failed to save: ${err.message}`)
     } finally {
-      setUpdatingId(null);
+      setSavingId(null)
     }
-  };
+  }
+
+  const handleAddStaff = async () => {
+    setIsInviting(true)
+    try {
+      const response = await fetch('/api/staff/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          name: newStaffName, 
+          email: newStaffEmail, 
+          rate: newStaffRate,
+          contracted_hours: newStaffHours 
+        }),
+      })
+
+      if (!response.ok) {
+        const resJson = await response.json()
+        throw new Error(resJson.error || 'Failed to invite staff.')
+      }
+      
+      alert(`Successfully invited ${newStaffName}!`)
+      setIsAddingStaff(false)
+      setNewStaffName('')
+      setNewStaffEmail('')
+      setNewStaffRate(12.0)
+      setNewStaffHours(160)
+      fetchSpatialDataOrRefresh()
+    } catch (err: any) {
+      alert(`Error: ${err.message}`)
+    } finally {
+      setIsInviting(false)
+    }
+  }
+
+  const fetchSpatialDataOrRefresh = () => {
+    fetchStaff()
+  }
+
+  const handleResendInvite = async (user: any) => {
+    try {
+      const response = await fetch('/api/staff/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          name: user.full_name, 
+          email: user.email, 
+          rate: user.hourly_rate,
+          action: 'resend' 
+        }),
+      })
+
+      if (!response.ok) {
+        const resJson = await response.json()
+        throw new Error(resJson.error || 'Failed to resend invite.')
+      }
+
+      alert(`Resent invite email to ${user.email}!`)
+    } catch (err: any) {
+      alert(`Error: ${err.message}`)
+    }
+  }
+
+  if (loading) {
+    return <div className="p-10 text-center font-bold text-slate-500">Loading Staff Management...</div>
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">
-      <h1 className="text-2xl font-bold text-slate-800">Staff & Contractor Management</h1>
-
-      {/* SECTION 1: Add New Staff Form (Sends Temporary Password Email) */}
-      <div className="p-6 max-w-md bg-white rounded shadow border">
-        <h2 className="text-xl font-bold mb-4">Add New Staff Member</h2>
-        <form onSubmit={handleAddStaff} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Full Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              className="w-full mt-1 px-3 py-2 border rounded"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email Address</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full mt-1 px-3 py-2 border rounded"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Hourly Rate</label>
-            <input
-              type="number"
-              step="0.01"
-              value={rate}
-              onChange={(e) => setRate(e.target.value)}
-              required
-              className="w-full mt-1 px-3 py-2 border rounded"
-            />
-          </div>
+      {/* Header */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
           <button
-            type="submit"
-            disabled={adding}
-            className="w-full py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+            onClick={() => router.push('/dashboard/admin')}
+            className="text-indigo-600 hover:text-indigo-800 font-bold mb-1 flex items-center transition-colors cursor-pointer text-sm"
           >
-            {adding ? 'Processing...' : 'Create Staff & Send Email'}
+            ← Back to Admin Roster Builder
           </button>
-        </form>
-        {message && <p className="mt-4 text-sm text-center text-gray-700">{message}</p>}
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff & Contractor Management</h1>
+        </div>
+
+        <button
+          onClick={() => setIsAddingStaff(true)}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium transition-colors shadow-sm cursor-pointer"
+        >
+          + New Staff Member
+        </button>
       </div>
 
-      {/* SECTION 2: Existing Team Directory & Role Manager */}
-      <div className="bg-white shadow-md rounded-lg overflow-hidden border">
-        <div className="p-4 bg-gray-50 border-b">
-          <h2 className="text-lg font-semibold text-slate-800">Existing Team Directory</h2>
+      {/* Add New Staff Form Card */}
+      {isAddingStaff && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-indigo-100 space-y-4">
+          <h2 className="text-lg font-bold text-slate-900">Add New Staff Member</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
+              <input 
+                placeholder="Full Name" 
+                value={newStaffName}
+                onChange={e => setNewStaffName(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email Address</label>
+              <input 
+                placeholder="email@example.com" 
+                type="email"
+                value={newStaffEmail}
+                onChange={e => setNewStaffEmail(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hourly Rate (£)</label>
+              <input 
+                type="number" 
+                step="0.10"
+                value={newStaffRate}
+                onChange={e => setNewStaffRate(Number(e.target.value))}
+                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Contracted Hours</label>
+              <input 
+                type="number" 
+                value={newStaffHours}
+                onChange={e => setNewStaffHours(Number(e.target.value))}
+                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button 
+              onClick={() => setIsAddingStaff(false)}
+              className="px-4 py-2 text-sm font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleAddStaff}
+              disabled={isInviting}
+              className="px-4 py-2 text-sm font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {isInviting ? 'Creating...' : 'Create Staff & Send Email'}
+            </button>
+          </div>
         </div>
-        {loading ? (
-          <div className="p-6 text-sm text-gray-500">Loading staff directory...</div>
-        ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">System Role</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employment Type</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+      )}
+
+      {/* Editable Existing Team Directory Table */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 overflow-x-auto">
+        <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Existing Team Directory</h2>
+        <table className="w-full text-left border-collapse min-w-[800px]">
+          <thead>
+            <tr className="border-b border-slate-200 text-xs font-bold text-slate-400 uppercase">
+              <th className="pb-3 px-2">Name</th>
+              <th className="pb-3 px-2">Email</th>
+              <th className="pb-3 px-2">System Role</th>
+              <th className="pb-3 px-2">Employment Type</th>
+              <th className="pb-3 px-2">Hourly Rate (£)</th>
+              <th className="pb-3 px-2">Contracted Hours</th>
+              <th className="pb-3 px-2 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-sm">
+            {staff.map(user => (
+              <tr key={user.id} className="hover:bg-slate-50/80 transition-colors">
+                <td className="py-3 px-2">
+                  <input
+                    type="text"
+                    value={user.full_name || ''}
+                    onChange={e => handleFieldChange(user.id, 'full_name', e.target.value)}
+                    className="w-full p-1.5 border border-slate-200 rounded bg-white text-slate-800 font-medium text-sm"
+                  />
+                </td>
+                <td className="py-3 px-2">
+                  <input
+                    type="email"
+                    value={user.email || ''}
+                    onChange={e => handleFieldChange(user.id, 'email', e.target.value)}
+                    className="w-full p-1.5 border border-slate-200 rounded bg-white text-slate-800 text-sm"
+                  />
+                </td>
+                <td className="py-3 px-2">
+                  <select
+                    value={user.role || 'staff'}
+                    onChange={e => handleFieldChange(user.id, 'role', e.target.value)}
+                    className="p-1.5 border border-slate-200 rounded bg-white text-slate-800 text-sm font-semibold"
+                  >
+                    <option value="master">Master</option>
+                    <option value="admin">Admin</option>
+                    <option value="manager">Manager</option>
+                    <option value="staff">Staff</option>
+                  </select>
+                </td>
+                <td className="py-3 px-2">
+                  <select
+                    value={user.employment_type || 'Employee'}
+                    onChange={e => handleFieldChange(user.id, 'employment_type', e.target.value)}
+                    className="p-1.5 border border-slate-200 rounded bg-white text-slate-800 text-sm"
+                  >
+                    <option value="Employee">Employee</option>
+                    <option value="Contractor">Contractor</option>
+                  </select>
+                </td>
+                <td className="py-3 px-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={user.hourly_rate ?? ''}
+                    onChange={e => handleFieldChange(user.id, 'hourly_rate', e.target.value)}
+                    className="w-24 p-1.5 border border-slate-200 rounded bg-white text-slate-800 text-sm"
+                  />
+                </td>
+                <td className="py-3 px-2">
+                  <input
+                    type="number"
+                    value={user.contracted_hours ?? ''}
+                    onChange={e => handleFieldChange(user.id, 'contracted_hours', e.target.value)}
+                    className="w-24 p-1.5 border border-slate-200 rounded bg-white text-slate-800 text-sm"
+                  />
+                </td>
+                <td className="py-3 px-2 text-right space-x-2 whitespace-nowrap">
+                  <button
+                    onClick={() => handleResendInvite(user)}
+                    className="px-3 py-1.5 bg-amber-500 text-white rounded font-medium text-xs hover:bg-amber-600 transition-colors shadow-sm"
+                  >
+                    Resend Invite
+                  </button>
+                  <button
+                    onClick={() => handleSaveRow(user)}
+                    disabled={savingId === user.id}
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded font-medium text-xs hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    {savingId === user.id ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {profiles.map((profile) => (
-                <StaffRow 
-                  key={profile.id} 
-                  profile={profile} 
-                  onSave={handleUpdate} 
-                  isUpdating={updatingId === profile.id}
-                />
-              ))}
-            </tbody>
-          </table>
-        )}
+            ))}
+            {staff.length === 0 && (
+              <tr>
+                <td colSpan={7} className="text-center text-slate-500 py-6">No staff members found.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
-  );
-}
-
-function StaffRow({ profile, onSave, isUpdating }: { 
-  profile: Profile; 
-  onSave: (id: string, role: string, type: string) => void;
-  isUpdating: boolean;
-}) {
-  const [role, setRole] = useState(profile.role);
-  const [employmentType, setEmploymentType] = useState(profile.employment_type || 'staff');
-
-  return (
-    <tr>
-      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
-        {profile.full_name || 'Unnamed User'}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-        {profile.email}
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-        <select 
-          value={role} 
-          onChange={(e) => setRole(e.target.value)}
-          className="border p-1 rounded text-sm bg-white text-slate-800"
-        >
-          <option value="employee">Employee</option>
-          <option value="manager">Manager</option>
-          <option value="admin">Admin</option>
-          <option value="master">Master</option>
-        </select>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-        <select 
-          value={employmentType} 
-          onChange={(e) => setEmploymentType(e.target.value)}
-          className="border p-1 rounded text-sm bg-white text-slate-800"
-        >
-          <option value="staff">Staff</option>
-          <option value="contractor">Contractor</option>
-        </select>
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-        <button
-          onClick={() => onSave(profile.id, role, employmentType)}
-          disabled={isUpdating}
-          className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isUpdating ? 'Saving...' : 'Save Changes'}
-        </button>
-      </td>
-    </tr>
-  );
+  )
 }

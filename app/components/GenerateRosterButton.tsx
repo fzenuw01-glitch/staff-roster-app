@@ -17,7 +17,7 @@ export default function GenerateRosterButton({ selectedMonth, onRosterGenerated 
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleGenerate = async () => {
+const handleGenerate = async () => {
     setIsGenerating(true);
     
     try {
@@ -25,64 +25,39 @@ export default function GenerateRosterButton({ selectedMonth, onRosterGenerated 
       const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
       const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
 
-      // 1. Fetch profiles and assigned patterns
-      const { data: staffList, error: fetchError } = await supabase
+      // 1. Fetch all staff directly from profiles table
+      const { data: staffData, error: staffError } = await supabase
         .from('profiles')
-        .select(`
-          id,
-          roster_assignments (
-            pattern_id
-          )
-        `);
+        .select('id, full_name');
 
-      if (fetchError) throw fetchError;
+      if (staffError) throw staffError;
 
-// 2. Fetch staff roster assignments active for or up to this month's start date
-const { data: staffAssignmentsData, error: staffError } = await supabase
-  .from('roster_assignments')
-  .select('user_id, pattern_id, start_date')
-  .lte('start_date', endDate); // gets assignments starting on or before the end of this month
+      // 2. Map directly to the format your generator expects
+      const staffAssignments = (staffData ?? []).map((staff: any) => ({
+        staff_id: staff.id,
+        name: staff.full_name || 'Unknown Staff',
+        pattern_id: 'name-based',
+      }));
 
-if (staffError) throw staffError;
+      console.log("Resolved staff for generation:", staffAssignments);
 
-// If a user has multiple, sort/filter to grab the latest applicable start_date for the month
-const assignmentMap = new Map();
-(staffAssignmentsData ?? []).forEach((assignment: any) => {
-  // Keep the most recent start_date that is <= endDate for each user
-  if (assignment.pattern_id && assignment.start_date <= endDate) {
-    // If multiple exist, you can prioritize the one closest to startDate or latest start_date <= startDate
-    assignmentMap.set(assignment.user_id, assignment.pattern_id);
-  }
-});
+      if (staffAssignments.length === 0) {
+        alert("Warning: No staff profiles found.");
+      }
 
-const staffAssignments = Array.from(assignmentMap.entries()).map(([user_id, pattern_id]) => ({
-  staff_id: user_id,
-  pattern_id,
-}));
-
-      // 3. Clear existing shifts for this date window
-      const { error: deleteError } = await supabase
-        .from('daily_shifts')
-        .delete()
-        .gte('date', startDate)
-        .lte('date', endDate);
-
-      if (deleteError) throw deleteError;
-
-      // 4. Generate shifts
+      // 3. Generate shifts (deletion of old non-manual shifts is handled inside shiftGenerator)
       const newShifts = await generateShifts(startDate, endDate, staffAssignments);
-      const shiftsToInsert = newShifts;
 
-      // 5. Insert into Supabase
-      const { error: insertError } = await supabase
-        .from('daily_shifts')
-        .insert(shiftsToInsert);
+      if (newShifts.length > 0) {
+        const { error: insertError } = await supabase
+          .from('daily_shifts')
+          .insert(newShifts);
 
-      if (insertError) throw insertError;
+        if (insertError) throw insertError;
+      }
 
       alert(`Roster for ${selectedMonth} successfully generated!`);
       
-      // Refresh router and trigger callback to load new shifts into view
       router.refresh();
       onRosterGenerated();
 

@@ -87,30 +87,35 @@ export default function AdminDashboard() {
     return <div className="p-6 text-slate-600 animate-pulse">Loading Admin Builder...</div>;
   }
 
-  return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header section with back button */}
+return (
+    <div className="p-6 max-w-7xl mx-auto space-y-8">
+      {/* Header Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <button 
+          <button
             onClick={() => router.push('/dashboard')}
-            className="text-indigo-600 hover:text-indigo-800 font-bold mb-2 flex items-center transition-colors cursor-pointer text-sm"
+            className="text-indigo-600 hover:text-indigo-800 font-bold mb-1 flex items-center transition-colors cursor-pointer text-sm"
           >
             ← Back to Dashboard
           </button>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Admin Roster Builder</h1>
         </div>
-        <button
-          onClick={() => setIsAddingStaff(true)}
-          className="bg-indigo-600 text-white px-5 py-2.5 rounded-lg font-bold shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer"
-        >
-          + New Staff Member
-        </button>
-      </div>
 
-      {/* Team List */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-        <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Current Team</h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <a
+            href="/dashboard/admin/staff"
+            className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+          >
+            👥 Manage Staff & Contracts
+          </a>
+          <button
+            onClick={() => setIsAddingStaff(true)}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium transition-colors shadow-sm"
+          >
+            + New Staff Member
+          </button>
+        </div>
+      </div>
         <div className="space-y-3">
           {staff.map(user => (
             <div key={user.id} className="p-4 bg-slate-50 border border-slate-100 rounded-lg flex justify-between items-center hover:bg-slate-100 transition-colors">
@@ -131,7 +136,6 @@ export default function AdminDashboard() {
             <div className="text-center text-slate-500 py-4">No staff members found.</div>
           )}
         </div>
-      </div>
 
       {/* NEW: Calendar Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">

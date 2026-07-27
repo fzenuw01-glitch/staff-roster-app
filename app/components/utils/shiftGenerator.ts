@@ -3,23 +3,9 @@
 import { createClient } from '../../../lib/supabase';
 
 const supabase = createClient();
-// utils/shiftGenerator.js
 
-const ANCHOR_DATE = new Date('2025-11-01T00:00:00');
-const RULE_CHANGE_DATE = new Date('2026-06-03T00:00:00');
-
-// Helper to determine the rolling 8-day cycle position for the Night Shift
-const getCycleDay = (currentDate: Date) => {
-  const diffTime = currentDate.getTime() - ANCHOR_DATE.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  let cycleDay = diffDays % 8;
-  if (cycleDay < 0) cycleDay += 8;
-  return cycleDay;
-};
-
-// Helper to calculate decimal hours worked
 const calculateHours = (timeIn: string, timeOut: string): number => {
-  if (timeIn === "OFF") return 0;
+  if (!timeIn || timeIn === "OFF") return 0;
   
   const parseTime = (timeStr: string): number => {
     const [time, modifier] = timeStr.split(' ');
@@ -33,129 +19,183 @@ const calculateHours = (timeIn: string, timeOut: string): number => {
 
   let inHours = parseTime(timeIn);
   let outHours = parseTime(timeOut);
-  
-  // Handle overnight shifts (e.g., 10:00 PM to 7:00 AM)
   if (outHours < inHours) outHours += 24;
   
   return parseFloat((outHours - inHours).toFixed(2));
 };
 
-// The core rules engine
-const getShiftForPattern = (
-  patternId: string,
-  dateObj: Date
+const getShiftForStaffName = (
+  staffName: string,
+  dateObj: Date,
+  anchorDateStr: string = '2025-11-01',
+  ruleChangeDateStr: string = '2026-07-01'
 ): { timeIn: string; timeOut: string; hoursWorked: number } => {
   const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
-  const isNewRules = dateObj >= RULE_CHANGE_DATE;
-  const cycleDay = getCycleDay(dateObj);
+  const anchorDate = new Date(`${anchorDateStr}T00:00:00`);
+  const ruleChangeDate = new Date(`${ruleChangeDateStr}T00:00:00`);
+  const isNewRules = dateObj >= ruleChangeDate;
 
   let timeIn = "OFF";
   let timeOut = "";
 
-  switch (patternId) {
-    // 1. Faisal's Schedule (Fixed 7-day rotation)
-    case 'ce34f2b4-34f1-474c-8611-5d330e77ad44': 
-      if (['Monday', 'Tuesday'].includes(dayName)) { timeIn = "7:00 AM"; timeOut = "7:00 PM"; }
-      else if (dayName === "Wednesday") { timeIn = "7:00 AM"; timeOut = "2:00 PM"; }
-      else if (dayName === "Thursday") { timeIn = "10:00 AM"; timeOut = "3:00 PM"; }
-      else if (dayName === "Friday") { timeIn = "7:00 AM"; timeOut = "3:00 PM"; }
-      break;
+  // Calculate 8-day cycle offset where applicable
+  const diffTime = dateObj.getTime() - anchorDate.getTime();
+  let cycleDay = Math.floor(diffTime / (1000 * 60 * 60 * 24)) % 8;
+  if (cycleDay < 0) cycleDay += 8;
 
-    // 2. Harri's Schedule (Fixed 7-day rotation)
-    case 'cb3d5d10-71f6-42d1-ab54-e210403d06cd':
-      if (dayName === "Wednesday") { timeIn = "2:00 PM"; timeOut = "10:00 PM"; }
-      else if (['Thursday', 'Friday'].includes(dayName)) { timeIn = "3:00 PM"; timeOut = "10:00 PM"; }
-      else if (dayName === "Saturday") { timeIn = "1:00 PM"; timeOut = "10:00 PM"; }
-      else if (dayName === "Sunday") { timeIn = "7:00 AM"; timeOut = "7:00 PM"; }
-      break;
-      
-    // 3. Breakfast Shift (7-day rotation: Suad on Thursday, Sumee on Saturday)
-    case '48d1d74c-b5ff-49f5-afad-d84348500601': 
-      if (dayName === "Thursday") { timeIn = "7:00 AM"; timeOut = "1:00 PM"; } // Suad
-      else if (dayName === "Saturday") { timeIn = "7:00 AM"; timeOut = "1:00 PM"; } // Sumee
-      break;
+switch (staffName) {
+  case "Faisal Zenuwah":
+    if (dayName === "Saturday" || dayName === "Sunday") {
+      timeIn = "OFF";
+      timeOut = "OFF";
+    } else if (dayName === "Monday" || dayName === "Tuesday") {
+      timeIn = "7:00 AM";
+      timeOut = "7:00 PM";
+    } else if (dayName === "Wednesday") {
+      timeIn = "7:00 AM";
+      timeOut = "2:00 PM";
+    } else if (dayName === "Thursday") {
+      timeIn = "10:00 AM";
+      timeOut = "3:00 PM";
+    } else if (dayName === "Friday") {
+      timeIn = "7:00 AM";
+      timeOut = "3:00 PM";
+    }
+    break;
 
-    // 4. Night Shift (8-day rotation: Suad 4 days, Sam/Mujib 3 days, Sumee 1 day)
-    case '4ebe77ad-8648-4ef3-aa2d-a57bb504': 
-      // Suad (4 days), Sam/Mujib (3 days), Sumee (1 day) mapped across the 8-day cycle index
-      // Adjust cycleDay check depending on which specific staff member is assigned this pattern UUID, 
-      // or evaluate standard Night Shift hours matching your rule:
-      if (['Sunday', 'Monday', 'Tuesday'].includes(dayName)) {
-        timeIn = "7:00 PM"; timeOut = "7:00 AM";
-      } else if (['Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayName)) {
-        timeIn = "10:00 PM"; timeOut = "7:00 AM"; // Post-rule change time
+    case "Harri Zenuwah":
+      if (dayName === "Wednesday") {
+        timeIn = "2:00 PM";
+        timeOut = isNewRules ? "10:00 PM" : "11:00 PM";
+      } else if (['Thursday', 'Friday'].includes(dayName)) {
+        timeIn = "3:00 PM";
+        timeOut = isNewRules ? "10:00 PM" : "11:00 PM";
+      } else if (dayName === "Saturday") {
+        timeIn = "1:00 PM";
+        timeOut = isNewRules ? "10:00 PM" : "7:00 PM";
+      } else if (dayName === "Sunday") {
+        timeIn = "7:00 AM";
+        timeOut = "7:00 PM";
       }
       break;
 
-    // Fallbacks or Support Shifts
-    case '72a9176c-e470-43ab-b470-3c4065fc34be': // Support Shift
-    case 'c41cbcce-b9c9-4444-820c-bf5730560a61': // Standard 4-4
-      // Add custom logic or leave OFF if handled elsewhere
+    case "Suad Bello": // 8-Day Cycle (4 ON / 4 OFF)
+      if (cycleDay === 0 || cycleDay === 1 || cycleDay === 6 || cycleDay === 7) {
+        if (isNewRules) {
+          if (['Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayName)) {
+            timeIn = "10:00 PM"; timeOut = "7:00 AM";
+          } else if (['Monday', 'Tuesday', 'Sunday'].includes(dayName)) {
+            timeIn = "7:00 PM"; timeOut = "7:00 AM";
+          }
+        } else {
+          if (['Monday', 'Tuesday', 'Saturday', 'Sunday'].includes(dayName)) {
+            timeIn = "7:00 PM"; timeOut = "7:00 AM";
+          } else if (['Wednesday', 'Thursday', 'Friday'].includes(dayName)) {
+            timeIn = "11:00 PM"; timeOut = "7:00 AM";
+          }
+        }
+      }
+      break;
+
+    case "Sumee Darai": // 8-Day Cycle (1 ON / 7 OFF)
+      if (cycleDay === 2) {
+        if (isNewRules) {
+          if (['Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayName)) {
+            timeIn = "10:00 PM"; timeOut = "7:00 AM";
+          } else if (['Monday', 'Tuesday', 'Sunday'].includes(dayName)) {
+            timeIn = "7:00 PM"; timeOut = "7:00 AM";
+          }
+        } else {
+          if (['Monday', 'Tuesday', 'Saturday', 'Sunday'].includes(dayName)) {
+            timeIn = "7:00 PM"; timeOut = "7:00 AM";
+          } else if (['Wednesday', 'Thursday', 'Friday'].includes(dayName)) {
+            timeIn = "11:00 PM"; timeOut = "7:00 AM";
+          }
+        }
+      }
+      break;
+
+    case "Sam(Mujib)": // 8-Day Cycle (3 ON / 5 OFF)
+      if (cycleDay >= 3 && cycleDay <= 5) {
+        if (isNewRules) {
+          if (['Wednesday', 'Thursday', 'Friday', 'Saturday'].includes(dayName)) {
+            timeIn = "10:00 PM"; timeOut = "7:00 AM";
+          } else if (['Monday', 'Tuesday', 'Sunday'].includes(dayName)) {
+            timeIn = "7:00 PM"; timeOut = "7:00 AM";
+          }
+        } else {
+          if (['Monday', 'Tuesday', 'Saturday', 'Sunday'].includes(dayName)) {
+            timeIn = "7:00 PM"; timeOut = "7:00 AM";
+          } else if (['Wednesday', 'Thursday', 'Friday'].includes(dayName)) {
+            timeIn = "11:00 PM"; timeOut = "7:00 AM";
+          }
+        }
+      }
       break;
   }
 
   return { timeIn, timeOut, hoursWorked: calculateHours(timeIn, timeOut) };
 };
 
+
 type StaffShiftAssignment = {
   staff_id: string;
-  pattern_id: string;
+  name: string;
+  start_date?: string;
 };
 
-type ShiftRecord = {
-  user_id: string;           
-  date: string;              
-  rostered_start: string | null; 
-  rostered_end: string | null;   
-  hours: number;
-  is_off: boolean;
-};
-
-/**
- * Generates an array of shift objects ready for database insertion.
- */
 export const generateShifts = async (
   startDateString: string,
   endDateString: string,
   staffList: StaffShiftAssignment[]
-): Promise<ShiftRecord[]> => {
+): Promise<any[]> => {
   if (!startDateString || !endDateString) {
     throw new Error("Start date and end date are required.");
   }
 
-  const shiftsToInsert: any[] = [];
   let currentDate = new Date(`${startDateString}T00:00:00`);
   const endDate = new Date(`${endDateString}T00:00:00`);
+
+  const shiftsToInsert = [];
 
   while (currentDate <= endDate) {
     const formattedDate = currentDate.toISOString().split('T')[0];
 
-    if (formattedDate) {
-      staffList.forEach((staff) => {
-        if (staff && staff.staff_id) {
-          const shiftDetails = getShiftForPattern(staff.pattern_id, currentDate);
+    for (const staff of staffList) {
+      if (!staff || !staff.staff_id || !staff.name) continue;
+      if (staff.start_date && staff.start_date > formattedDate) continue;
 
-          shiftsToInsert.push({
-            user_id: staff.staff_id,
-            date: formattedDate,
-            rostered_start: shiftDetails.timeIn === 'OFF' ? null : shiftDetails.timeIn,
-            rostered_end: shiftDetails.timeOut === '' ? null : shiftDetails.timeOut,
-            hours: shiftDetails.hoursWorked || 0,
-            is_off: shiftDetails.timeIn === 'OFF',
-          });
-        }
+      const shiftDetails = getShiftForStaffName(staff.name, currentDate);
+
+      shiftsToInsert.push({
+        user_id: staff.staff_id,
+        date: formattedDate,
+        rostered_start: shiftDetails.timeIn === 'OFF' ? null : shiftDetails.timeIn,
+        rostered_end: shiftDetails.timeOut === '' ? null : shiftDetails.timeOut,
+        hours: shiftDetails.hoursWorked || 0,
+        is_off: shiftDetails.timeIn === 'OFF',
+        is_manual: false,
       });
     }
 
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
-  const uniqueMap = new Map<string, any>();
-  for (const shift of shiftsToInsert) {
-    const compositeKey = `${shift.user_id}-${shift.date}-${shift.rostered_start || 'none'}-${shift.rostered_end || 'none'}`;
-    uniqueMap.set(compositeKey, shift);
-  }
-  const uniquePayload = Array.from(uniqueMap.values());
+  // Clear only non-manual shifts for this date range before inserting fresh ones
+  if (shiftsToInsert.length > 0) {
+    await supabase
+      .from('daily_shifts')
+      .delete()
+      .gte('date', startDateString)
+      .lte('date', endDateString)
+      .eq('is_manual', false);
 
-  return uniquePayload as ShiftRecord[];
+    const { error: insertError } = await supabase
+      .from('daily_shifts')
+      .insert(shiftsToInsert);
+
+    if (insertError) throw insertError;
+  }
+
+  return shiftsToInsert;
 };

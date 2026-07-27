@@ -24,15 +24,20 @@ export const calculateDashboardStats = (
   });
 
   visibleShifts.forEach((shift) => {
+    // If the shift is marked explicitly as off, skip it
+    if (shift.is_off) return;
+
     // Fallback to shift.hours if start/end aren't used for a specific entry
     const hours = getDurationInHours(shift.rostered_start, shift.rostered_end) || Number(shift.hours || 0);
 
-    if (shift.status === 'Working') {
-      scheduled += hours;
-    } else if (shift.status === 'Holiday') {
+    // Check status if available, otherwise default regular generated shifts to 'scheduled'
+    if (shift.status === 'Holiday') {
       holiday += hours;
     } else if (shift.status === 'Sick') {
       sick += hours;
+    } else {
+      // Counts any working/generated shift that isn't explicitly off, holiday, or sick
+      scheduled += hours;
     }
   });
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useRouter } from 'next/navigation'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,10 +57,9 @@ export default function PayslipPage() {
       const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString()
 
       // 4. Fetch actual shift hours logged for this user in this month
-      // (Assumes you have a table like 'shifts' or 'roster' tracking hours/duration)
       const { data: shiftsData } = await supabase
         .from('shifts')
-        .select('hours_worked') // Adjust column name if it differs in your database
+        .select('hours_worked')
         .eq('user_id', session.user.id)
         .gte('date', startDate)
         .lte('date', endDate)
@@ -76,6 +76,8 @@ export default function PayslipPage() {
     setLoading(false)
   }
 
+  const router = useRouter()
+
   const handlePrint = () => window.print()
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-500">Loading Payslip...</div>
@@ -86,16 +88,30 @@ export default function PayslipPage() {
     <div className="min-h-screen bg-slate-100 p-8 print:p-0 print:bg-white flex justify-center">
       <div className="w-full max-w-3xl space-y-6">
         
+        {/* Navigation & Actions Toolbar (Hidden when printing) */}
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex justify-between items-center print:hidden">
           <button onClick={() => window.history.back()} className="text-blue-600 hover:underline font-medium">← Back</button>
           <div className="flex items-center gap-4">
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.setMonth(currentMonth.getMonth() - 1)))} className="px-3 py-1 bg-slate-100 rounded hover:bg-slate-200 font-medium">Prev</button>
+            <button 
+              onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} 
+              className="px-3 py-1 bg-slate-100 rounded hover:bg-slate-200 font-medium"
+            >
+              Prev
+            </button>
             <span className="font-bold">{currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
-            <button onClick={() => setCurrentMonth(new Date(currentMonth.setMonth(currentMonth.getMonth() + 1)))} className="px-3 py-1 bg-slate-100 rounded hover:bg-slate-200 font-medium">Next</button>
+            <button 
+              onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} 
+              className="px-3 py-1 bg-slate-100 rounded hover:bg-slate-200 font-medium"
+            >
+              Next
+            </button>
           </div>
           <button onClick={handlePrint} className="bg-slate-800 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-slate-700">Print</button>
         </div>
 
+        <button onClick={() => router.push('/dashboard')} className="text-blue-600 hover:underline font-medium">← Back to Dashboard</button>
+
+        {/* Printable Wage Slip Document */}
         <div className="bg-white p-10 rounded-xl shadow-md border border-slate-200 print:shadow-none print:border-none print:p-0">
           <div className="border-b-2 border-slate-800 pb-6 mb-6 flex justify-between items-start">
             <div>
@@ -129,7 +145,7 @@ export default function PayslipPage() {
             <div className="grid grid-cols-12 gap-4 items-center mb-4 text-sm font-medium">
               <div className="col-span-5 text-slate-800">Basic Pay</div>
               <div className="col-span-2 text-right">{payableHours}h</div>
-              <div className="col-span-2 text-right">£{profile?.hourly_rate?.toFixed(2)}</div>
+              <div className="col-span-2 text-right">£{profile?.hourly_rate?.toFixed(2) || '0.00'}</div>
               <div className="col-span-3 text-right font-semibold text-slate-900">£{payrollData?.grossPay}</div>
             </div>
           </div>

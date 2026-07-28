@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase';
 
 export default function SwapRequests({ userRole }: { userRole: string }) {
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const supabase = createClient();
 
   useEffect(() => {
     fetchRequests();
@@ -19,9 +16,15 @@ export default function SwapRequests({ userRole }: { userRole: string }) {
     setLoading(true);
     const { data } = await supabase
       .from('shift_swaps')
-      .select('*, profiles!shift_swaps_offered_by_user_id_fkey(full_name), daily_shifts(date)')
+      .select('*, profiles!shift_swaps_requester_id_fkey(full_name), daily_shifts(date)')
       .eq('status', 'pending');
-    setRequests(data || []);
+    
+    // Filter out requests involving Faisal Y Zenuwah if any slip through
+    const filteredData = (data || []).filter(
+      req => req.profiles?.full_name !== 'Faisal Y Zenuwah'
+    );
+
+    setRequests(filteredData);
     setLoading(false);
   };
 
@@ -33,8 +36,8 @@ export default function SwapRequests({ userRole }: { userRole: string }) {
     fetchRequests(); 
   };
 
-  // Only show to admins/managers
- if (userRole !== 'admin' && userRole !== 'manager' && userRole !== 'master') return null;
+  // Only show to admins/managers/master
+  if (userRole !== 'admin' && userRole !== 'manager' && userRole !== 'master') return null;
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 mb-6">
@@ -53,14 +56,14 @@ export default function SwapRequests({ userRole }: { userRole: string }) {
               </div>
               <div className="flex gap-2">
                 <button 
-                  onClick={() => handleAction(req.id, req.shift_id, 'approved', req.requested_by_user_id || '')} 
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold"
+                  onClick={() => handleAction(req.id, req.shift_id, 'approved', req.target_colleague_id || '')} 
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold cursor-pointer"
                 >
                   Approve
                 </button>
                 <button 
                   onClick={() => handleAction(req.id, req.shift_id, 'declined', '')} 
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold"
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs font-semibold cursor-pointer"
                 >
                   Deny
                 </button>

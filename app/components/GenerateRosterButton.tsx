@@ -17,7 +17,7 @@ export default function GenerateRosterButton({ selectedMonth, onRosterGenerated 
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
 
-const handleGenerate = async () => {
+  const handleGenerate = async () => {
     setIsGenerating(true);
     
     try {
@@ -25,10 +25,11 @@ const handleGenerate = async () => {
       const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
       const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
 
-      // 1. Fetch all staff directly from profiles table
+      // 1. Fetch all staff directly from profiles table, excluding Faisal Y Zenuwah
       const { data: staffData, error: staffError } = await supabase
         .from('profiles')
-        .select('id, full_name');
+        .select('id, full_name')
+        .neq('full_name', 'Faisal Y Zenuwah');
 
       if (staffError) throw staffError;
 
@@ -73,7 +74,7 @@ const handleGenerate = async () => {
     <button 
       onClick={handleGenerate} 
       disabled={isGenerating}
-      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium transition-colors shadow-sm"
+      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium transition-colors shadow-sm cursor-pointer"
     >
       {isGenerating ? "Generating..." : "⚡ Generate Roster"}
     </button>

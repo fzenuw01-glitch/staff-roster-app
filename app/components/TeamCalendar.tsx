@@ -63,8 +63,11 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     const endDate = moment(`${activeMonth}-01`, 'YYYY-MM-DD').endOf('month').format('YYYY-MM-DD');
     const todayStr = moment().format('YYYY-MM-DD');
 
-    // Fetch staff profiles
-   const { data: profiles } = await supabase.from('profiles').select('id, full_name, employment_type');
+    // Fetch staff profiles excluding the project developer
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, full_name, employment_type')
+      .neq('full_name', 'Faisal Y Zenuwah');
     
     // Fetch shifts for the month
     let shiftQuery = supabase

@@ -43,25 +43,25 @@ const getShiftForStaffName = (
   let cycleDay = Math.floor(diffTime / (1000 * 60 * 60 * 24)) % 8;
   if (cycleDay < 0) cycleDay += 8;
 
-switch (staffName) {
-  case "Faisal Zenuwah":
-    if (dayName === "Saturday" || dayName === "Sunday") {
-      timeIn = "OFF";
-      timeOut = "OFF";
-    } else if (dayName === "Monday" || dayName === "Tuesday") {
-      timeIn = "7:00 AM";
-      timeOut = "7:00 PM";
-    } else if (dayName === "Wednesday") {
-      timeIn = "7:00 AM";
-      timeOut = "2:00 PM";
-    } else if (dayName === "Thursday") {
-      timeIn = "10:00 AM";
-      timeOut = "3:00 PM";
-    } else if (dayName === "Friday") {
-      timeIn = "7:00 AM";
-      timeOut = "3:00 PM";
-    }
-    break;
+  switch (staffName) {
+    case "Faisal Zenuwah":
+      if (dayName === "Saturday" || dayName === "Sunday") {
+        timeIn = "OFF";
+        timeOut = "OFF";
+      } else if (dayName === "Monday" || dayName === "Tuesday") {
+        timeIn = "7:00 AM";
+        timeOut = "7:00 PM";
+      } else if (dayName === "Wednesday") {
+        timeIn = "7:00 AM";
+        timeOut = "2:00 PM";
+      } else if (dayName === "Thursday") {
+        timeIn = "10:00 AM";
+        timeOut = "3:00 PM";
+      } else if (dayName === "Friday") {
+        timeIn = "7:00 AM";
+        timeOut = "3:00 PM";
+      }
+      break;
 
     case "Harri Zenuwah":
       if (dayName === "Wednesday") {
@@ -137,7 +137,6 @@ switch (staffName) {
   return { timeIn, timeOut, hoursWorked: calculateHours(timeIn, timeOut) };
 };
 
-
 type StaffShiftAssignment = {
   staff_id: string;
   name: string;
@@ -163,6 +162,8 @@ export const generateShifts = async (
 
     for (const staff of staffList) {
       if (!staff || !staff.staff_id || !staff.name) continue;
+      // Skip generation for Faisal Y Zenuwah if any legacy references remain
+      if (staff.name === "Faisal Y Zenuwah") continue;
       if (staff.start_date && staff.start_date > formattedDate) continue;
 
       const shiftDetails = getShiftForStaffName(staff.name, currentDate);

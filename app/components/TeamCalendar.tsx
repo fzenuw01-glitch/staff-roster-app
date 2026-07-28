@@ -1,32 +1,39 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import moment from 'moment';
 
-export default function TeamCalendar({ userRole, userId, activeMonth, setActiveMonth }: { userRole: string, userId: string, activeMonth: string, setActiveMonth: (m: string) => void }) {
+export default function TeamCalendar({ 
+  userRole, 
+  userId, 
+  activeMonth, 
+  setActiveMonth 
+}: { 
+  userRole: string; 
+  userId: string; 
+  activeMonth: string; 
+  setActiveMonth: (m: string) => void; 
+}) {
   const [shifts, setShifts] = useState<any[]>([]);
   const [leaveData, setLeaveData] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all');
   const [notification, setNotification] = useState<string | null>(null);
   
-  // Reference for the table container to enable smooth horizontal day scrolling
   const tableContainerRef = useRef<HTMLDivElement>(null);
   
-  // Initialize to today, or the start of activeMonth
   const [viewStartDate, setViewStartDate] = useState(
     moment(`${activeMonth}-01`, 'YYYY-MM-DD').isSame(moment(), 'month')
       ? moment().format('YYYY-MM-DD')
       : `${activeMonth}-01`
   );
 
-  const supabase = createBrowserClient(
+  const supabase = useMemo(() => createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  ), []);
 
-  // Modal State for Shift Editing
   const [selectedCell, setSelectedCell] = useState<{
     userId: string;
     userName: string;
@@ -39,37 +46,28 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     rostered_end: '17:00',
     status: 'scheduled',
     apply_until: '',
-    repeat_type: 'none', // 'none' | 'daily' | 'weekly' | 'fortnightly' | 'monthly' | 'custom'
-    repeat_interval: 1,  // e.g., every X days/weeks
+    repeat_type: 'none', 
+    repeat_interval: 1, 
   });
 
   const [clipboard, setClipboard] = useState<any>(null);
-
   const isManager = userRole === 'manager' || userRole === 'master' || userRole === 'admin';
 
-  // State setup inside your component:
-  const [existingShift, setExistingShift] = useState<any>(null); // The shift being edited
-  const [extraShifts, setExtraShifts] = useState<any[]>([]);       // Any new extra shifts to add
+  const [existingShift, setExistingShift] = useState<any>(null); 
+  const [extraShifts, setExtraShifts] = useState<any[]>([]);      
 
-  // 1. Keep main effect at the top level
-  useEffect(() => {
-    fetchData();
-  }, [activeMonth, userRole, userId]);
-
-  // 2. Define fetchData cleanly
-  const fetchData = async () => {
-    if (!activeMonth) return; // Guard against undefined
+  // Wrapped fetchData in useCallback to stabilize dependencies
+  const fetchData = useCallback(async () => {
+    if (!activeMonth) return;
     const startDate = `${activeMonth}-01`;
     const endDate = moment(`${activeMonth}-01`, 'YYYY-MM-DD').endOf('month').format('YYYY-MM-DD');
     const todayStr = moment().format('YYYY-MM-DD');
 
-    // Fetch staff profiles excluding the project developer
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, full_name, employment_type')
       .neq('full_name', 'Faisal Y Zenuwah');
     
-    // Fetch shifts for the month
     let shiftQuery = supabase
       .from('daily_shifts')
       .select('id, date, user_id, rostered_start, rostered_end, actual_start, actual_finish, hours, status, profiles:user_id(full_name)')
@@ -84,7 +82,6 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     const { data: shiftsResult } = await shiftQuery;
     if (shiftsResult) setShifts(shiftsResult);
 
-    // Map clock-in status for today
     if (profiles && shiftsResult) {
       const updatedProfiles = profiles.map(staff => {
         const todaysShift = shiftsResult.find(
@@ -92,17 +89,15 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
         );
         const isClockedIn = Boolean(todaysShift?.actual_start && !todaysShift?.actual_finish);
         const isUnscheduled = isClockedIn && (todaysShift?.status === 'off' || !todaysShift?.rostered_start);
-
         return {
           ...staff,
           isClockedIn,
-          isUnscheduled
+          isUnscheduled,
         };
       });
       setStaffList(updatedProfiles);
     }
 
-    // Fetch leaves for the month
     let leaveQuery = supabase
       .from('leave_requests')
       .select('id, user_id, start_date, end_date, leave_type, profiles(full_name)')
@@ -115,9 +110,12 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
 
     const { data: leavesResult } = await leaveQuery;
     if (leavesResult) setLeaveData(leavesResult);
-  };
+  }, [activeMonth, isManager, userId, supabase]);
 
-  // 3. Keep browser notification hooks completely outside of fetchData
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
@@ -148,7 +146,6 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     return () => clearInterval(interval);
   }, [shifts, userId]);
 
-  // Days in current month array
   const daysInMonth = useMemo(() => {
     const targetMonth = activeMonth || moment().format('YYYY-MM');
     const startOfMonth = moment(`${targetMonth}-01`, 'YYYY-MM-DD');
@@ -172,7 +169,6 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     return days;
   }, [activeMonth]);
 
-  // Month navigation handlers
   const handlePrevMonth = () => {
     const current = activeMonth ? moment(`${activeMonth}-01`, 'YYYY-MM-DD') : moment(viewStartDate, 'YYYY-MM-DD');
     const prev = current.subtract(1, 'month').format('YYYY-MM');
@@ -187,7 +183,6 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     setViewStartDate(`${next}-01`);
   };
 
-  // Day ticker navigation handlers (moves by a single day and syncs activeMonth if cross-month)
   const handlePrevDay = (e: React.MouseEvent) => {
     e.stopPropagation();
     const newDate = moment(viewStartDate, 'YYYY-MM-DD').subtract(1, 'day').format('YYYY-MM-DD');
@@ -235,7 +230,7 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     });
   };
 
-  const handleCopy = () => {
+const handleCopy = () => {
     setClipboard({
       rostered_start: editForm.rostered_start,
       rostered_end: editForm.rostered_end,
@@ -256,10 +251,46 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
     }
   };
 
+  const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn: boolean, existingShiftId?: string) => {
+    const updateData = clockIn 
+      ? { actual_start: moment().format('HH:mm:ss') }
+      : { actual_finish: moment().format('HH:mm:ss') };
+
+    if (existingShiftId) {
+      const { error } = await supabase
+        .from('daily_shifts')
+        .update(updateData)
+        .eq('id', existingShiftId);
+
+      if (error) {
+        setNotification(`Error updating clock state: ${error.message}`);
+      } else {
+        setNotification(clockIn ? 'Manually clocked in staff.' : 'Manually clocked out staff.');
+        fetchData();
+      }
+    } else {
+      const { error } = await supabase
+        .from('daily_shifts')
+        .insert({
+          user_id: staffId,
+          date: dateStr,
+          status: 'scheduled',
+          ...updateData
+        });
+
+      if (error) {
+        setNotification(`Error creating shift for manual clock: ${error.message}`);
+      } else {
+        setNotification(clockIn ? 'Created shift & manually clocked in.' : 'Created shift & manually clocked out.');
+        fetchData();
+      }
+    }
+  };
+
   const handleSaveShiftsWithRecurrence = async () => {
     if (!selectedCell) return;
     
-    // 1. If we are editing an existing shift record, update it first
+    // 1. Update existing shift record if present
     if (existingShift && existingShift.id) {
       const { error: updateError } = await supabase
         .from('daily_shifts')
@@ -276,7 +307,7 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
       }
     }
 
-    // 2. If there are extra shifts added, insert them as new rows
+    // 2. Insert extra shifts if added
     if (extraShifts.length > 0) {
       const extraPayloads = extraShifts.map(extra => ({
         user_id: selectedCell.userId,
@@ -296,40 +327,58 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
       }
     }
 
-    // 3. Handle standard form recurrence saves if applicable
-    const payloads = [];
-    let currentDate = moment(selectedCell.date);
-    const endDate = editForm.apply_until ? moment(editForm.apply_until) : currentDate;
+    // 3. Handle Recurrence Payloads (Runs if repeat type is chosen or apply_until is set past current date)
+    if (editForm.repeat_type !== 'none' || (editForm.apply_until && editForm.apply_until > selectedCell.date)) {
+      const payloads = [];
+      let currentDate = moment(selectedCell.date).add(1, 'days'); // Start recurring from next day
+      const endDate = editForm.apply_until ? moment(editForm.apply_until) : currentDate;
 
-    while (currentDate.isSameOrBefore(endDate)) {
-      payloads.push({
-        user_id: selectedCell.userId,
-        date: currentDate.format('YYYY-MM-DD'),
-        rostered_start: editForm.rostered_start,
-        rostered_end: editForm.rostered_end,
-        status: editForm.status,
-      });
+      while (currentDate.isSameOrBefore(endDate)) {
+        payloads.push({
+          user_id: selectedCell.userId,
+          date: currentDate.format('YYYY-MM-DD'),
+          rostered_start: editForm.rostered_start,
+          rostered_end: editForm.rostered_end,
+          status: editForm.status,
+        });
 
-      if (editForm.repeat_type === 'daily') {
-        currentDate.add(Number(editForm.repeat_interval) || 1, 'days');
-      } else if (editForm.repeat_type === 'weekly') {
-        currentDate.add(Number(editForm.repeat_interval) || 1, 'weeks');
-      } else if (editForm.repeat_type === 'fortnightly') {
-        currentDate.add(2, 'weeks');
-      } else if (editForm.repeat_type === 'monthly') {
-        currentDate.add(1, 'months');
-      } else {
-        break; 
+        if (editForm.repeat_type === 'daily') {
+          currentDate.add(Number(editForm.repeat_interval) || 1, 'days');
+        } else if (editForm.repeat_type === 'weekly') {
+          currentDate.add(Number(editForm.repeat_interval) || 1, 'weeks');
+        } else if (editForm.repeat_type === 'fortnightly') {
+          currentDate.add(2, 'weeks');
+        } else if (editForm.repeat_type === 'monthly') {
+          currentDate.add(1, 'months');
+        } else {
+          break; 
+        }
       }
-    }
 
-    if (payloads.length > 0 && !existingShift) {
+      if (payloads.length > 0) {
+        const { error } = await supabase
+          .from('daily_shifts')
+          .insert(payloads);
+
+        if (error) {
+          setNotification(`Error saving recurring shifts: ${error.message}`);
+          return;
+        }
+      }
+    } else if (!existingShift && extraShifts.length === 0) {
+      // Standard single insert if no existing shift was edited and no recurrence is set
       const { error } = await supabase
         .from('daily_shifts')
-        .insert(payloads);
+        .insert({
+          user_id: selectedCell.userId,
+          date: selectedCell.date,
+          rostered_start: editForm.rostered_start,
+          rostered_end: editForm.rostered_end,
+          status: editForm.status,
+        });
 
       if (error) {
-        setNotification(`Error saving shifts: ${error.message}`);
+        setNotification(`Error saving shift: ${error.message}`);
         return;
       }
     }
@@ -378,9 +427,7 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-2">
           <label className="text-xs font-bold text-slate-500 uppercase">Roster Month:</label>
-          
           <div className="flex items-center bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
-            {/* Previous Month Arrow */}
             <button
               type="button"
               onClick={handlePrevMonth}
@@ -389,16 +436,12 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
             >
               ‹
             </button>
-
-            {/* Month Input */}
             <input
               type="month"
               value={activeMonth || ''}
               onChange={(e) => setActiveMonth(e.target.value)}
               className="px-3 py-2 bg-slate-50 text-slate-800 text-sm font-semibold focus:outline-none cursor-pointer"
             />
-
-            {/* Next Month Arrow */}
             <button
               type="button"
               onClick={handleNextMonth}
@@ -433,7 +476,7 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
         )}
       </div>
 
-      {/* Matrix View */}
+      {/* Matrix View Table */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div ref={tableContainerRef} className="overflow-x-auto scroll-smooth">
           <table className="w-full border-collapse text-left text-xs">
@@ -442,35 +485,14 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
                 <th className="px-4 py-3 text-left font-bold text-xs uppercase tracking-wider text-white bg-slate-900 sticky left-0 z-10">
                   <div className="flex items-center justify-between">
                     <span>Staff Member</span>
-                    
-                    {/* Date Ticker Arrows */}
                     <div className="flex items-center gap-1 pr-2 text-lg">
-                      <button 
-                        type="button" 
-                        onClick={handlePrevDay} 
-                        className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer select-none" 
-                        title="Previous Day"
-                      >
-                        ‹
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={handleNextDay} 
-                        className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer select-none" 
-                        title="Next Day"
-                      >
-                        ›
-                      </button>
+                      <button type="button" onClick={handlePrevDay} className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer select-none" title="Previous Day">‹</button>
+                      <button type="button" onClick={handleNextDay} className="px-2 py-0.5 hover:bg-slate-700 rounded transition-colors cursor-pointer select-none" title="Next Day">›</button>
                     </div>
                   </div>
                 </th>
                 {daysInMonth.map(day => (
-                  <th 
-                    key={day.dateStr}
-                    className={`p-2.5 text-center min-w-26.25 border-l border-slate-700 ${
-                      day.isWeekend ? 'bg-slate-800 text-amber-300' : ''
-                    }`}
-                  >
+                  <th key={day.dateStr} className={`p-2.5 text-center min-w-26.25 border-l border-slate-700 ${day.isWeekend ? 'bg-slate-800 text-amber-300' : ''}`}>
                     <div className="font-medium text-[11px]">{day.dayName}</div>
                     <div className="text-sm font-black">{day.dayNum}</div>
                   </th>
@@ -511,46 +533,85 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
                       </div>
                     </td>
 
-                    {daysInMonth.map(day => {
-                      const shift = shifts.find(
-                        s => s.user_id === staff.id && moment(s.date).format('YYYY-MM-DD') === day.dateStr
-                      );
-                      const leave = leaveData.find(
-                        l => l.user_id === staff.id && day.dateStr >= l.start_date && day.dateStr <= l.end_date
-                      );
-                      const isOff = !shift || shift.status === 'off' || !shift.rostered_start;
+{daysInMonth.map(day => {
+  const currentShift = shifts.find(
+    s => s.user_id === staff.id && moment(s.date).format('YYYY-MM-DD') === day.dateStr
+  );
+  const leave = leaveData.find(
+    l => l.user_id === staff.id && day.dateStr >= l.start_date && day.dateStr <= l.end_date
+  );
+  const isOff = !currentShift || currentShift.status === 'off' || !currentShift.rostered_start;
 
-                      return (
-                        <td 
-                          key={day.dateStr} 
-                          onClick={() => handleCellClick(staff, day.dateStr, shift)}
-                          className={`p-2 text-center border-l border-slate-100 align-middle transition-colors ${
-                            isManager ? 'cursor-pointer hover:bg-indigo-50/60' : ''
-                          } ${day.isWeekend ? 'bg-slate-50/50' : ''}`}
-                        >
-                          {leave ? (
-                            <div className={`p-1.5 rounded text-[11px] font-bold ${
-                              leave.leave_type === 'sick' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                            }`}>
-                              {leave.leave_type === 'sick' ? '🤒 Sick' : '🌴 Holiday'}
-                            </div>
-                          ) : isOff ? (
-                            <span className="inline-block px-2 py-1 text-[10px] font-bold text-slate-400 bg-slate-100 rounded hover:bg-indigo-100 hover:text-indigo-600 transition-colors">
-                              OFF
-                            </span>
-                          ) : (
-                            <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-1.5 text-[11px] shadow-2xs space-y-1">
-                              <div className="font-bold text-indigo-950 leading-tight">
-                                {shift.rostered_start} - {shift.rostered_end}
-                              </div>
-                              <div className="text-[10px] text-indigo-600 font-semibold">
-                                {shift.hours ? `${shift.hours}h` : ''}
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
+  return (
+    <td 
+      key={day.dateStr} 
+      onClick={() => handleCellClick(staff, day.dateStr, currentShift)}
+      className={`p-2 text-center border-l border-slate-100 align-middle transition-colors ${
+        isManager ? 'cursor-pointer hover:bg-indigo-50/60' : ''
+      } ${day.isWeekend ? 'bg-slate-50/50' : ''}`}
+    >
+      {leave ? (
+        <div className={`p-1.5 rounded text-[11px] font-bold ${
+          leave.leave_type === 'sick' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+        }`}>
+          {leave.leave_type === 'sick' ? '🤒 Sick' : '🌴 Holiday'}
+        </div>
+      ) : isOff ? (
+        <div className="flex flex-col items-center gap-1">
+          <span className="inline-block px-2 py-1 text-[10px] font-bold text-slate-400 bg-slate-100 rounded">
+            OFF
+          </span>
+          {isManager && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDirectManualClock(staff.id, day.dateStr, true, currentShift?.id);
+              }}
+              className="text-[9px] text-indigo-600 hover:underline font-semibold"
+            >
+              + Clock In
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-1.5 text-[11px] shadow-2xs space-y-1">
+          <div className="font-bold text-indigo-950 leading-tight">
+            {currentShift.rostered_start} - {currentShift.rostered_end}
+          </div>
+          <div className="text-[10px] text-indigo-600 font-semibold">
+            {currentShift.hours ? `${currentShift.hours}h` : ''}
+          </div>
+          
+          {/* Manager Quick Action Clock In/Out Buttons next to shift info */}
+          {isManager && (
+            <div className="pt-1 border-t border-indigo-100 flex justify-center gap-1.5 text-[9px]" onClick={(e) => e.stopPropagation()}>
+              {!currentShift.actual_start || currentShift.actual_finish ? (
+                <button
+                  type="button"
+                  onClick={() => handleDirectManualClock(staff.id, day.dateStr, true, currentShift?.id)}
+                  className="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold hover:bg-emerald-700"
+                  title="Manual Clock In"
+                >
+                  In
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleDirectManualClock(staff.id, day.dateStr, false, currentShift?.id)}
+                  className="px-1.5 py-0.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700"
+                  title="Manual Clock Out"
+                >
+                  Out
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </td>
+  );
+})}
                   </tr>
                 ))
               )}
@@ -581,7 +642,6 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
                 </select>
               </div>
 
-              {/* 1. Main Existing Shift (Editable) */}
               {existingShift && (
                 <div className="p-3 border rounded-lg bg-slate-50 mb-3 space-y-3">
                   <span className="text-xs font-semibold text-slate-500 uppercase">Existing Shift</span>
@@ -608,7 +668,6 @@ export default function TeamCalendar({ userRole, userId, activeMonth, setActiveM
                 </div>
               )}
 
-              {/* 2. Extra Shifts List (New inserts) */}
               {extraShifts.map((extra, index) => (
                 <div key={index} className="p-3 border border-emerald-200 rounded-lg bg-emerald-50/50 mb-3 relative space-y-3">
                   <span className="text-xs font-semibold text-emerald-600 uppercase">Extra Shift #{index + 1}</span>

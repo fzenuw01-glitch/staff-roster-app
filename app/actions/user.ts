@@ -34,17 +34,18 @@ export async function updateStaffProfile(formData: FormData) {
     if (authError) return { error: authError.message }
   }
 
-  // Update Profile
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .update({
-      phone_number: phone,
-      address: address,
-      bank_account: bank,
-      sort_code: sortCode,
-      profile_completed: true
-    })
-    .eq('id', user.id)
+// Inside your updateStaffProfile action (@/app/actions/user.ts)
+const { error: profileError } = await supabase
+  .from('profiles')
+  .update({
+    phone_number: phone,
+    address: address,
+    bank_account: bank,
+    sort_code: sortCode,
+    profile_completed: true,
+    has_set_password: true // ADD THIS LINE HERE
+  })
+  .eq('id', user.id)
 
   if (profileError) return { error: profileError.message }
 

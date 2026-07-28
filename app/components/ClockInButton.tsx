@@ -2,19 +2,20 @@
 
 import { useState } from "react";
 import { getCoordinates } from "@/lib/geolocation";
-import { createBrowserClient } from "@supabase/ssr";
+import { createClient } from "@/lib/supabase";
 
 interface ClockInOutProps {
   shiftId: string;
   userRole: string;
   rosteredStart: string;
-  rosteredEnd?: string;        // Added to check scheduled end time
+  rosteredEnd?: string;
   actualStart?: string | null; 
   actualEnd?: string | null;   
   onStatusChange?: () => void; 
 }
 
-const isWithinRadius = (lat1: number, lng1: number, lat2: number, lng2: number, radius: number): boolean => {
+// Refactored to return the raw distance in meters instead of a boolean
+const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
@@ -22,8 +23,7 @@ const isWithinRadius = (lat1: number, lng1: number, lat2: number, lng2: number, 
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c;
-  return distance <= radius;
+  return Math.round(R * c); 
 };
 
 export default function ClockInButton({ 
@@ -35,22 +35,22 @@ export default function ClockInButton({
   actualEnd, 
   onStatusChange 
 }: ClockInOutProps) {
-  const [loading, setLoading] = useState(false);
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+const [loading, setLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null); // Added debug state
+
+const supabase = createClient();
 
   const isClockedIn = Boolean(actualStart) && !actualEnd;
   const isCompleted = Boolean(actualEnd);
 
-  // Check if it's close to clock-out time (e.g., within 30 minutes of rostered end, or anytime for managers/admins)
   const now = new Date();
   let canClockOut = true;
 
-  if (isClockedIn && rosteredEnd && userRole !== "manager" && userRole !== "master" && userRole !== "admin") {
-    const endWindow = new Date(rosteredEnd).getTime() - (30 * 60 * 1000); // 30 mins before rostered end
-    // If current time is BEFORE the allowed window, hide/disable the clock-out button to prevent accidental clicks
+  // Added developer to the exempt roles for the clock-out window check
+  const isExemptRole = ["manager", "master", "admin", "developer"].includes(userRole);
+
+  if (isClockedIn && rosteredEnd && !isExemptRole) {
+    const endWindow = new Date(rosteredEnd).getTime() - (30 * 60 * 1000); 
     if (now.getTime() < endWindow) {
       canClockOut = false;
     }
@@ -58,6 +58,8 @@ export default function ClockInButton({
 
   const handleClockAction = async () => {
     setLoading(true);
+    setDebugInfo(null); // Reset debug info on new attempt
+    
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
@@ -81,9 +83,15 @@ export default function ClockInButton({
       const { latitude, longitude, radius_meters } = loc as { latitude: number; longitude: number; radius_meters: number };
       const coords = await getCoordinates();
       
-      const onSite = isWithinRadius(coords.lat, coords.lng, latitude, longitude, radius_meters);
-      if (!onSite && userRole !== "manager" && userRole !== "master" && userRole !== "admin") {
-        throw new Error("You must be on-site at your assigned location to clock in/out.");
+      // Calculate exact distance
+      const distanceInMeters = getDistance(coords.lat, coords.lng, latitude, longitude);
+      const onSite = distanceInMeters <= radius_meters;
+
+      // Expose the math to the UI for testing
+      setDebugInfo(`Device: ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)} | DB: ${latitude}, ${longitude} | Distance: ${distanceInMeters}m | Allowed: ${radius_meters}m`);
+
+      if (!onSite && !isExemptRole) {
+        throw new Error(`You are ${distanceInMeters}m away from the site. Must be within ${radius_meters}m.`);
       }
 
       if (isClockedIn) {
@@ -105,7 +113,7 @@ export default function ClockInButton({
         let isOvertimeApproved = false;
         let statusReason = null;
 
-        if (userRole === "manager" || userRole === "master" || userRole === "admin") {
+        if (isExemptRole) {
           isOvertimeApproved = true; 
           statusReason = "Manager override";
         } else {
@@ -146,7 +154,6 @@ export default function ClockInButton({
     return <span className="text-xs font-bold text-slate-400 uppercase">Shift Completed</span>;
   }
 
-  // If clocked in, but too early to clock out, display status text instead of a button
   if (isClockedIn && !canClockOut) {
     return (
       <div className="text-xs font-medium text-amber-600 bg-amber-50 px-3 py-2 rounded border border-amber-200">
@@ -156,14 +163,23 @@ export default function ClockInButton({
   }
 
   return (
-    <button 
-      onClick={handleClockAction} 
-      disabled={loading}
-      className={`px-4 py-2 rounded text-white font-bold transition disabled:opacity-50 cursor-pointer ${
-        isClockedIn ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
-      }`}
-    >
-      {loading ? "Verifying location..." : isClockedIn ? "Clock Out" : "Clock In"}
-    </button>
+    <div className="flex flex-col items-start gap-2">
+      <button 
+        onClick={handleClockAction} 
+        disabled={loading}
+        className={`px-4 py-2 rounded text-white font-bold transition disabled:opacity-50 cursor-pointer ${
+          isClockedIn ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+        }`}
+      >
+        {loading ? "Verifying location..." : isClockedIn ? "Clock Out" : "Clock In"}
+      </button>
+      
+      {/* Debug string will appear here when you click the button */}
+      {debugInfo && (
+        <span className="text-xs text-slate-500 font-mono bg-slate-100 p-1 rounded">
+          {debugInfo}
+        </span>
+      )}
+    </div>
   );
 }

@@ -1,13 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabase = createClient()
 
 const calculateUKPayroll = (hours: number, rate: number) => {
   const grossPay = (hours * rate).toFixed(2);
@@ -65,7 +62,7 @@ export default function PayslipPage() {
         .lte('date', endDate)
 
       // Sum up the hours (fallback to 0 if none recorded yet)
-      const totalHours = shiftsData?.reduce((acc, shift) => acc + (Number(shift.hours_worked) || 0), 0) || 0
+      const totalHours = shiftsData?.reduce((acc: number, shift: any) => acc + (Number(shift.hours_worked) || 0), 0) || 0
       setPayableHours(totalHours)
 
       const rate = profileData.hourly_rate || 0

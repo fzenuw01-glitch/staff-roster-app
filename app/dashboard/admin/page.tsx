@@ -2,19 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '../../../lib/supabase' // adjust relative path if needed
+import Link from 'next/link'
+import { createClient } from '../../../lib/supabase'
 import TeamCalendar from '../../components/TeamCalendar';
+import LeaveApprovalWidget from '../../components/LeaveApprovalWidget';
 
 export default function AdminDashboard() {
-  // 1. Initialize Supabase client at the very top of your component
   const supabase = createClient() 
   
-  // 2. All your state hooks stay inside the component function
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const router = useRouter();
 
-  // --- MISSING STATE VARIABLES ---
   const [staff, setStaff] = useState<any[]>([]);
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [newStaffName, setNewStaffName] = useState('');
@@ -23,33 +22,28 @@ export default function AdminDashboard() {
   const [isInviting, setIsInviting] = useState(false);
   const [activeMonth, setActiveMonth] = useState<string>(new Date().toISOString().slice(0,7));
 
-  // --- HELPER FUNCTIONS ---
-  
   const checkAccessAndFetchStaff = async () => {
-    // 1. Fetch current user
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return router.push('/');
 
-    // 2. Fetch Profile
-    const { data: profile } = await supabase
+    const { data: profileData } = await supabase
       .from('profiles')
-      .select('role')
+      .select('id, role')
       .eq('id', session.user.id)
       .single();
 
     const allowedRoles = ['admin', 'master', 'developer'];
-    if (!profile || !allowedRoles.includes(profile.role)) {
+    if (!profileData || !allowedRoles.includes(profileData.role)) {
       alert("Access Denied.");
       return router.push('/dashboard');
     }
 
-    setProfile(profile);
+    setProfile(profileData);
 
-    // 3. Fetch Staff List
     const { data: staffData } = await supabase
       .from('profiles')
       .select('*')
-      .neq('id', session.user.id); // Get everyone except yourself
+      .neq('id', session.user.id);
 
     setStaff(staffData || []);
     setLoading(false);
@@ -58,9 +52,9 @@ export default function AdminDashboard() {
   const handleAddStaff = async () => {
     setIsInviting(true);
     try {
-      // Assuming you have an API route as shown in your file structure
       const response = await fetch('/api/staff/invite', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newStaffName, email: newStaffEmail, rate: newStaffRate }),
       });
 
@@ -71,7 +65,7 @@ export default function AdminDashboard() {
       setNewStaffName('');
       setNewStaffEmail('');
       setNewStaffRate(12.0);
-      checkAccessAndFetchStaff(); // Refresh the list
+      checkAccessAndFetchStaff();
     } catch (err: any) {
       alert(`Error: ${err.message}`);
     } finally {
@@ -81,13 +75,13 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     checkAccessAndFetchStaff();
-  }, []); // Note: router and supabase are technically dependencies here, but it's fine for now.
+  }, []);
 
   if (loading) {
     return <div className="p-6 text-slate-600 animate-pulse">Loading Admin Builder...</div>;
   }
 
-return (
+  return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">
       {/* Header Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -102,6 +96,12 @@ return (
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <Link 
+            href="/dashboard/admin/timesheets"
+            className="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg text-sm hover:bg-indigo-700 transition"
+          >
+            View Timesheets & Manual Logs
+          </Link>
           <a
             href="/dashboard/admin/staff"
             className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
@@ -116,6 +116,24 @@ return (
           </button>
         </div>
       </div>
+
+      {/* Leave Approvals Widget */}
+      <LeaveApprovalWidget userRole={profile?.role} />
+
+      {/* Calendar Section */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Team Roster</h2>
+        <TeamCalendar
+          userRole={profile?.role}
+          userId={profile?.id}
+          activeMonth={activeMonth}
+          setActiveMonth={setActiveMonth}
+        />
+      </div>
+
+      {/* Current Team Overview Section */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+        <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Current Team</h2>
         <div className="space-y-3">
           {staff.map(user => (
             <div key={user.id} className="p-4 bg-slate-50 border border-slate-100 rounded-lg flex justify-between items-center hover:bg-slate-100 transition-colors">
@@ -136,22 +154,6 @@ return (
             <div className="text-center text-slate-500 py-4">No staff members found.</div>
           )}
         </div>
-
-      {/* NEW: Calendar Section */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-        <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Team Roster</h2>
-        <TeamCalendar
-          userRole={profile?.role}
-          userId={profile?.id}
-          activeMonth={activeMonth}
-          setActiveMonth={setActiveMonth}
-        />
-      </div>
-
-      {/* Existing Team List */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-        <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Current Team</h2>
-        {/* ... existing staff list ... */}
       </div>
 
       {/* Add Staff Modal */}

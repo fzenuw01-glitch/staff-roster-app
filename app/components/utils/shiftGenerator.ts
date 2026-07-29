@@ -43,7 +43,7 @@ const getShiftForStaffName = (
   let cycleDay = Math.floor(diffTime / (1000 * 60 * 60 * 24)) % 8;
   if (cycleDay < 0) cycleDay += 8;
 
-  switch (staffName) {
+switch (staffName) {
     case "Faisal Zenuwah":
       if (dayName === "Saturday" || dayName === "Sunday") {
         timeIn = "OFF";
@@ -60,11 +60,17 @@ const getShiftForStaffName = (
       } else if (dayName === "Friday") {
         timeIn = "7:00 AM";
         timeOut = "3:00 PM";
+      } else {
+        timeIn = "OFF";
+        timeOut = "OFF";
       }
       break;
 
     case "Harri Zenuwah":
-      if (dayName === "Wednesday") {
+      if (dayName === "Monday" || dayName === "Tuesday") {
+        timeIn = "OFF";
+        timeOut = "OFF";
+      } else if (dayName === "Wednesday") {
         timeIn = "2:00 PM";
         timeOut = isNewRules ? "10:00 PM" : "11:00 PM";
       } else if (['Thursday', 'Friday'].includes(dayName)) {
@@ -76,6 +82,9 @@ const getShiftForStaffName = (
       } else if (dayName === "Sunday") {
         timeIn = "7:00 AM";
         timeOut = "7:00 PM";
+      } else {
+        timeIn = "OFF";
+        timeOut = "OFF";
       }
       break;
 

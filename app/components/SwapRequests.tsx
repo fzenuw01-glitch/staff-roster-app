@@ -21,7 +21,7 @@ export default function SwapRequests({ userRole }: { userRole: string }) {
     
     // Filter out requests involving Faisal Y Zenuwah if any slip through
     const filteredData = (data || []).filter(
-      req => req.profiles?.full_name !== 'Faisal Y Zenuwah'
+      (req: any) => req.profiles?.full_name !== 'Faisal Y Zenuwah'
     );
 
     setRequests(filteredData);

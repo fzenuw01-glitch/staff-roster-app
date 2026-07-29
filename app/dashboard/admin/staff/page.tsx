@@ -50,7 +50,7 @@ export default function StaffManagementPage() {
 
     // Initialize local editable state mapping
     if (staffData) {
-      setStaff(staffData.map(s => ({ ...s })) )
+      setStaff(staffData.map((s: any) => ({ ...s })) )
     }
     setLoading(false)
   }
@@ -237,7 +237,7 @@ export default function StaffManagementPage() {
       {/* Editable Existing Team Directory Table */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 overflow-x-auto">
         <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Existing Team Directory</h2>
-        <table className="w-full text-left border-collapse min-w-[800px]">
+        <table className="w-full text-left border-collapse min-w-200">
           <thead>
             <tr className="border-b border-slate-200 text-xs font-bold text-slate-400 uppercase">
               <th className="pb-3 px-2">Name</th>

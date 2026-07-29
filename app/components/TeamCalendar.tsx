@@ -251,10 +251,13 @@ const handleCopy = () => {
     }
   };
 
-  const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn: boolean, existingShiftId?: string) => {
+const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn: boolean, existingShiftId?: string) => {
+    // Combine the selected date with the current time into a full ISO timestamp string
+    const timestampValue = moment(`${dateStr} ${moment().format('HH:mm:ss')}`, 'YYYY-MM-DD HH:mm:ss').toISOString();
+
     const updateData = clockIn 
-      ? { actual_start: moment().format('HH:mm:ss') }
-      : { actual_finish: moment().format('HH:mm:ss') };
+      ? { actual_start: timestampValue }
+      : { actual_finish: timestampValue };
 
     if (existingShiftId) {
       const { error } = await supabase

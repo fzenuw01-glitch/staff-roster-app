@@ -20,6 +20,11 @@ export default function TeamCalendar({
   const [staffList, setStaffList] = useState<any[]>([]);
   const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all');
   const [notification, setNotification] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<any[]>([]);
+
+const filteredStaff = (profiles || []).filter(
+  (p: any) => p.role !== 'master' && p.role !== 'developer'
+);
   
   const tableContainerRef = useRef<HTMLDivElement>(null);
   
@@ -56,7 +61,7 @@ export default function TeamCalendar({
   const [existingShift, setExistingShift] = useState<any>(null); 
   const [extraShifts, setExtraShifts] = useState<any[]>([]);      
 
-  // Wrapped fetchData in useCallback to stabilize dependencies
+// Wrapped fetchData in useCallback to stabilize dependencies
   const fetchData = useCallback(async () => {
     if (!activeMonth) return;
     const startDate = `${activeMonth}-01`;
@@ -65,8 +70,22 @@ export default function TeamCalendar({
 
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, full_name, employment_type')
-      .neq('full_name', 'Faisal Y Zenuwah');
+      .select('id, full_name, employment_type, role')
+      .neq('role', 'master');
+
+    if (profiles) {
+      setProfiles(profiles);
+      
+      // Immediately populate staffList so the table rows render right away
+      const initialProfiles = (profiles || [])
+        .filter((p: any) => p.role !== 'master' && p.role !== 'developer')
+        .map(staff => ({
+          ...staff,
+          isClockedIn: false,
+          isUnscheduled: false,
+        }));
+      setStaffList(initialProfiles);
+    }
     
     let shiftQuery = supabase
       .from('daily_shifts')
@@ -83,7 +102,7 @@ export default function TeamCalendar({
     if (shiftsResult) setShifts(shiftsResult);
 
     if (profiles && shiftsResult) {
-      const updatedProfiles = profiles.map(staff => {
+      const updatedProfiles = filteredStaff.map(staff => {
         const todaysShift = shiftsResult.find(
           s => s.user_id === staff.id && s.date === todayStr
         );
@@ -110,7 +129,7 @@ export default function TeamCalendar({
 
     const { data: leavesResult } = await leaveQuery;
     if (leavesResult) setLeaveData(leavesResult);
-  }, [activeMonth, isManager, userId, supabase]);
+  }, [activeMonth, isManager, userId, supabase, filteredStaff]);
 
   useEffect(() => {
     fetchData();

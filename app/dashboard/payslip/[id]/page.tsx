@@ -7,20 +7,35 @@ import { useRouter, useParams } from 'next/navigation'
 const supabase = createClient()
 
 // HMRC Real-Time Threshold & Progressive Calculation Engine (2026/27 guidelines)
-const calculateUKPayroll = (hours: number, rate: number, frequency: string = 'Monthly') => {
+const calculateUKPayroll = (
+  hours: number,
+  rate: number,
+  frequency: string = 'Monthly',
+  employmentType: string = 'Staff',
+  totalAdvances: number = 0,
+) => {
   const grossPeriodPay = hours * rate;
-  
-  // Dynamic pay periods based on assigned frequency
-  const periodsPerYear = frequency === 'Weekly' ? 52 : 12;
+  const grossPay = Number(grossPeriodPay.toFixed(2));
 
-  // Annualize earnings to evaluate against tax brackets properly
+  // Contractors are self-employed; they handle their own tax and NI via Self Assessment
+  if (employmentType?.toLowerCase() === 'contractor') {
+    return {
+      grossPay: grossPay.toFixed(2),
+      incomeTax: '0.00',
+      nationalInsurance: '0.00',
+      totalDeductions: '0.00',
+      advanceDeduction: totalAdvances.toFixed(2),
+      netPay: (grossPay - totalAdvances).toFixed(2),
+    };
+  }
+
+  const periodsPerYear = frequency === 'Weekly' ? 52 : 12;
   const estimatedAnnualGross = grossPeriodPay * periodsPerYear; 
 
   const PERSONAL_ALLOWANCE = 12570;
   const BASIC_RATE_LIMIT = 50270;
   const ADDITIONAL_RATE_LIMIT = 125140;
 
-  // Personal Allowance Taper for income over £100,000
   let allowance = PERSONAL_ALLOWANCE;
   if (estimatedAnnualGross > 100000) {
     const excess = estimatedAnnualGross - 100000;
@@ -45,34 +60,32 @@ const calculateUKPayroll = (hours: number, rate: number, frequency: string = 'Mo
     annualTax += inAdditional * 0.45;
   }
 
-  // Employee Class 1 National Insurance Calculation
   const NI_PRIMARY_THRESHOLD = 12570;
   const NI_UPPER_LIMIT = 50270;
   let annualNI = 0;
 
   if (estimatedAnnualGross > NI_PRIMARY_THRESHOLD) {
     const mainEarnings = Math.min(estimatedAnnualGross, NI_UPPER_LIMIT) - NI_PRIMARY_THRESHOLD;
-    annualNI += mainEarnings * 0.08; // 8% main rate
+    annualNI += mainEarnings * 0.08; 
   }
   if (estimatedAnnualGross > NI_UPPER_LIMIT) {
     const upperEarnings = estimatedAnnualGross - NI_UPPER_LIMIT;
-    annualNI += upperEarnings * 0.02; // 2% higher rate
+    annualNI += upperEarnings * 0.02; 
   }
 
-  // Convert back to current pay period proportion
   const incomeTax = Number((annualTax / periodsPerYear).toFixed(2));
   const nationalInsurance = Number((annualNI / periodsPerYear).toFixed(2));
-  const grossPay = Number(grossPeriodPay.toFixed(2));
   const totalDeductions = Number((incomeTax + nationalInsurance).toFixed(2));
-  const netPay = Number((grossPay - totalDeductions).toFixed(2));
+  const netPay = Number((grossPay - totalDeductions - totalAdvances).toFixed(2));
 
-  return { 
-    grossPay: grossPay.toFixed(2), 
-    incomeTax: incomeTax.toFixed(2), 
-    nationalInsurance: nationalInsurance.toFixed(2), 
-    totalDeductions: totalDeductions.toFixed(2), 
-    netPay: Math.max(0, netPay).toFixed(2) 
-  };
+return { 
+  grossPay: grossPay.toFixed(2), 
+  incomeTax: incomeTax.toFixed(2), 
+  nationalInsurance: nationalInsurance.toFixed(2), 
+  totalDeductions: totalDeductions.toFixed(2), 
+  advanceDeduction: totalAdvances.toFixed(2),
+  netPay: Math.max(0, netPay).toFixed(2) 
+};
 };
 
 export default function PayslipPage() {
@@ -132,13 +145,25 @@ const endDate = `${year}-${pad(month + 1)}-${pad(lastDay)}`
         .gte('date', startDate)
         .lte('date', endDate)
 
+        // 3.5. Fetch un-deducted advances for this user in the selected month
+const { data: advancesData } = await supabase
+  .from('staff_advances')
+  .select('amount')
+  .eq('user_id', targetUserId)
+  .gte('date', startDate)
+  .lte('date', endDate)
+  .eq('deducted', false);
+
+const totalAdvances = advancesData?.reduce((acc: number, adv: any) => acc + (Number(adv.amount) || 0), 0) || 0;
+
       const totalHours = shiftsData?.reduce((acc: number, shift: any) => acc + (Number(shift.hours) || 0), 0) || 0
       setPayableHours(totalHours)
 
       // 4. Calculate with user rate and payment frequency
       const rate = profileData.hourly_rate || 0
       const frequency = profileData.payment_frequency || 'Monthly'
-      const calculated = calculateUKPayroll(totalHours, rate, frequency)
+      const employmentType = profileData.employment_type || 'Staff'
+      const calculated = calculateUKPayroll(totalHours, rate, frequency, employmentType)
       
       setPayrollData(calculated)
     }
@@ -194,6 +219,14 @@ const endDate = `${year}-${pad(month + 1)}-${pad(lastDay)}`
             </div>
           </div>
 
+          {/* Step 3: Advance Payment Deduction Row */}
+          {Number(payrollData?.advanceDeduction) > 0 && (
+            <div className="grid grid-cols-12 gap-4 items-center mb-4 text-sm text-rose-600 border-b pb-4">
+              <div className="col-span-9">Advance Payment Deduction</div>
+              <div className="col-span-3 text-right font-medium">-£{payrollData?.advanceDeduction}</div>
+            </div>
+          )}  
+
           <div className="grid grid-cols-2 gap-8 mb-8 bg-slate-50 p-6 rounded-lg">
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase mb-1">Employee Name</p>
@@ -213,25 +246,32 @@ const endDate = `${year}-${pad(month + 1)}-${pad(lastDay)}`
               <div className="col-span-3 text-right">Amount</div>
             </div>
             
-            {/* Earnings Item */}
-            <div className="grid grid-cols-12 gap-4 items-center mb-3 text-sm font-medium">
-              <div className="col-span-5 text-slate-800">Basic Pay</div>
-              <div className="col-span-2 text-right">{payableHours}h</div>
-              <div className="col-span-2 text-right">£{profile?.hourly_rate?.toFixed(2) || '0.00'}</div>
-              <div className="col-span-3 text-right font-semibold text-slate-900">£{payrollData?.grossPay}</div>
-            </div>
-
-            {/* Deductions Items */}
-            <div className="grid grid-cols-12 gap-4 items-center mb-2 text-sm text-rose-600">
-              <div className="col-span-9">PAYE Income Tax</div>
-              <div className="col-span-3 text-right font-medium">-£{payrollData?.incomeTax}</div>
-            </div>
-            <div className="grid grid-cols-12 gap-4 items-center mb-4 text-sm text-rose-600 border-b pb-4">
-              <div className="col-span-9">Employee National Insurance (NI)</div>
-              <div className="col-span-3 text-right font-medium">-£{payrollData?.nationalInsurance}</div>
-            </div>
+{/* Earnings Item */}
+          <div className="grid grid-cols-12 gap-4 items-center mb-3 text-sm font-medium">
+            <div className="col-span-5 text-slate-800">Basic Pay</div>
+            <div className="col-span-2 text-right">{payableHours}h</div>
+            <div className="col-span-2 text-right">£{profile?.hourly_rate?.toFixed(2) || '0.00'}</div>
+            <div className="col-span-3 text-right font-semibold text-slate-900">£{payrollData?.grossPay}</div>
           </div>
 
+          {/* Deductions Items */}
+          <div className="grid grid-cols-12 gap-4 items-center mb-2 text-sm text-rose-600">
+            <div className="col-span-9">PAYE Income Tax</div>
+            <div className="col-span-3 text-right font-medium">-£{payrollData?.incomeTax}</div>
+          </div>
+          <div className="grid grid-cols-12 gap-4 items-center mb-2 text-sm text-rose-600">
+            <div className="col-span-9">Employee National Insurance (NI)</div>
+            <div className="col-span-3 text-right font-medium">-£{payrollData?.nationalInsurance}</div>
+          </div>
+
+          {/* Advance Payment Deduction Row */}
+          {Number(payrollData?.advanceDeduction) > 0 && (
+            <div className="grid grid-cols-12 gap-4 items-center mb-4 text-sm text-rose-600 border-b pb-4">
+              <div className="col-span-9">Advance Payment Deduction</div>
+              <div className="col-span-3 text-right font-medium">-£{payrollData?.advanceDeduction}</div>
+            </div>
+          )}
+        </div>
           <div className="border-t-2 border-slate-800 pt-6 flex justify-between items-end">
             <div>
               <p className="text-xs text-slate-400">HMRC Compliant Calculation (2026/27 Rates)</p>

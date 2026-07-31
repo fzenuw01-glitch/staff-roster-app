@@ -57,13 +57,25 @@ export function calculateEmployeeNI(grossAnnual: number): number {
   return Number(annualNI.toFixed(2));
 }
 
-// Master calculation function taking actual hours worked & hourly rate
-export function calculatePayslipBreakdown(totalHoursWorked: number, hourlyRate: number) {
+// Master calculation function taking actual hours worked, hourly rate, and employment type
+export function calculatePayslipBreakdown(totalHoursWorked: number, hourlyRate: number, employmentType?: string) {
   const grossPeriodPay = totalHoursWorked * hourlyRate;
   
+  // If the staff member is a Contractor, tax and NI do not apply
+  const isContractor = employmentType?.toLowerCase() === 'contractor';
+
+  if (isContractor) {
+    return {
+      grossPay: Number(grossPeriodPay.toFixed(2)),
+      incomeTax: 0,
+      nationalInsurance: 0,
+      totalDeductions: 0,
+      netPay: Number(grossPeriodPay.toFixed(2)),
+    };
+  }
+
   // Annualize for tax bracket assessment (assuming standard 52-week annual projection or period scaling)
-  // For monthly payroll context, multiply period pay by 12, or compute per-pay-period directly.
-  const estimatedAnnualGross = grossPeriodPay * 52; // assuming weekly calculation or scaling factor
+  const estimatedAnnualGross = grossPeriodPay * 52; 
 
   const annualTax = calculateIncomeTax(estimatedAnnualGross);
   const annualNI = calculateEmployeeNI(estimatedAnnualGross);

@@ -87,6 +87,12 @@ export default function StaffDashboard() {
     fetchData()
   }, [])
 
+  const onViewPayslip = (userId?: string) => {
+    if (userId) {
+      router.push(`/dashboard/payslip/${userId}`)
+    }
+  }
+
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut()
 
@@ -237,6 +243,16 @@ export default function StaffDashboard() {
       className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg text-sm transition"
     >
       Sign Out
+    </button>
+  </div>
+
+<div className="flex items-center gap-2">
+    {/* Restored View Payslip Button */}
+    <button
+      onClick={() => onViewPayslip(profile?.id)}
+      className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition"
+    >
+      View Payslip
     </button>
   </div>
 </div>

@@ -331,26 +331,6 @@ export default function StaffDashboard() {
       {/* Action Widgets Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
-          <h2 className="text-lg font-bold text-slate-900">Clock In / Out</h2>
-          <p className="text-sm text-slate-500">
-            {currentShift 
-              ? `Today's Shift: ${currentShift.rostered_start?.slice(0,5)} - ${currentShift.rostered_end?.slice(0,5)}`
-              : 'No shift rostered for today.'}
-          </p>
-          <button
-            onClick={handleClockToggle}
-            disabled={isClocking || !currentShift}
-            className={`w-full py-3 px-4 rounded-lg font-bold text-white transition shadow-sm cursor-pointer ${
-              currentShift?.actual_start && !currentShift?.actual_finish 
-                ? 'bg-rose-600 hover:bg-rose-700' 
-                : 'bg-indigo-600 hover:bg-indigo-700'
-            } disabled:opacity-50`}
-          >
-            {isClocking ? 'Processing...' : currentShift?.actual_start && !currentShift?.actual_finish ? 'Clock Out' : 'Clock In'}
-          </button>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 space-y-4">
           <h2 className="text-lg font-bold text-slate-900">Request Time Off / Holiday</h2>
           <form onSubmit={handleLeaveSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">

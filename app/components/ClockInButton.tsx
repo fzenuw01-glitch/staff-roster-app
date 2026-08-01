@@ -80,19 +80,23 @@ const supabase = createClient();
       const loc = Array.isArray(profile.locations) ? profile.locations[0] : profile.locations;
       if (!loc) throw new Error("Location not assigned.");
 
-      const { latitude, longitude, radius_meters } = loc as { latitude: number; longitude: number; radius_meters: number };
-      const coords = await getCoordinates();
-      
-      // Calculate exact distance
-      const distanceInMeters = getDistance(coords.lat, coords.lng, latitude, longitude);
-      const onSite = distanceInMeters <= radius_meters;
+const { latitude, longitude, radius_meters } = loc as { latitude: number; longitude: number; radius_meters: number };
+const coords = await getCoordinates();
 
-      // Expose the math to the UI for testing
-      setDebugInfo(`Device: ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)} | DB: ${latitude}, ${longitude} | Distance: ${distanceInMeters}m | Allowed: ${radius_meters}m`);
+if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
+  throw new Error("Unable to retrieve device GPS location. Please ensure location services are enabled.");
+}
 
-      if (!onSite && !isExemptRole) {
-        throw new Error(`You are ${distanceInMeters}m away from the site. Must be within ${radius_meters}m.`);
-      }
+const distanceInMeters = getDistance(coords.lat, coords.lng, latitude, longitude);
+const onSite = distanceInMeters <= radius_meters;
+
+// Explicitly log attempt for debugging if needed
+console.log(`Clock attempt - Device: (${coords.lat}, ${coords.lng}), Target: (${latitude}, ${longitude}), Distance: ${distanceInMeters}m, Allowed: ${radius_meters}m`);
+
+// Strictly block non-exempt staff if outside the radius
+if (!onSite && !isExemptRole) {
+  throw new Error(`Clock-in blocked: You are ${distanceInMeters}m away from the site. You must be within ${radius_meters}m to clock in.`);
+}
 
       if (isClockedIn) {
         const { error } = await supabase

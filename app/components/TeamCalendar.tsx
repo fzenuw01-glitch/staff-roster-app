@@ -226,28 +226,31 @@ const filteredStaff = (profiles || []).filter(
     }
   };
 
-  const handleCellClick = (staffMember: any, dateStr: string, existingShiftData?: any) => {
-    if (!isManager) return;
+const handleCellClick = (staffMember: any, dateStr: string, shiftsList?: any[]) => {
+  if (!isManager) return;
+  
+  const primaryShift = shiftsList && shiftsList.length > 0 ? shiftsList[0] : null;
+  const extraShiftsList = shiftsList && shiftsList.length > 1 ? shiftsList.slice(1) : [];
 
-    setSelectedCell({
-      userId: staffMember.id,
-      userName: staffMember.full_name,
-      date: dateStr,
-      shift: existingShiftData,
-    });
+  setSelectedCell({
+    userId: staffMember.id,
+    userName: staffMember.full_name,
+    date: dateStr,
+    shift: primaryShift,
+  });
 
-    setExistingShift(existingShiftData ? { ...existingShiftData } : null);
-    setExtraShifts([]);
+  setExistingShift(primaryShift ? { ...primaryShift } : null);
+  setExtraShifts(extraShiftsList);
 
-    setEditForm({
-      rostered_start: existingShiftData?.rostered_start || '09:00',
-      rostered_end: existingShiftData?.rostered_end || '17:00',
-      status: existingShiftData?.status === 'off' ? 'off' : 'scheduled',
-      apply_until: dateStr,
-      repeat_type: 'none',
-      repeat_interval: 1,
-    });
-  };
+  setEditForm({
+    rostered_start: primaryShift?.rostered_start || '09:00',
+    rostered_end: primaryShift?.rostered_end || '17:00',
+    status: primaryShift?.status === 'off' ? 'off' : 'scheduled',
+    apply_until: dateStr,
+    repeat_type: 'none',
+    repeat_interval: 1,
+  });
+};
 
 const handleCopy = () => {
     setClipboard({
@@ -309,107 +312,85 @@ const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn
     }
   };
 
-  const handleSaveShiftsWithRecurrence = async () => {
-    if (!selectedCell) return;
-    
-    // 1. Update existing shift record if present
-    if (existingShift && existingShift.id) {
-      const { error: updateError } = await supabase
-        .from('daily_shifts')
-        .update({
-          rostered_start: existingShift.rostered_start,
-          rostered_end: existingShift.rostered_end,
-          status: existingShift.status,
-        })
-        .eq('id', existingShift.id);
+const handleSaveShiftsWithRecurrence = async () => {
+  if (!selectedCell) return;
 
-      if (updateError) {
-        setNotification(`Error updating shift: ${updateError.message}`);
-        return;
+  // 1. If recurrence is enabled, use your existing payload loop
+  if (editForm.repeat_type !== 'none' || (editForm.apply_until && editForm.apply_until > selectedCell.date)) {
+    const payloads = [];
+    let currentDate = moment(selectedCell.date);
+    let endDate = editForm.apply_until ? moment(editForm.apply_until) : currentDate;
+
+    while (currentDate.isSameOrBefore(endDate)) {
+      payloads.push({
+        id: crypto.randomUUID(),
+        user_id: selectedCell.userId,
+        date: currentDate.format('YYYY-MM-DD'),
+        rostered_start: editForm.rostered_start,
+        rostered_end: editForm.rostered_end,
+        status: editForm.status,
+        is_manual: true
+      });
+
+      if (editForm.repeat_type === 'daily') {
+        currentDate.add(Number(editForm.repeat_interval) || 1, 'days');
+      } else if (editForm.repeat_type === 'weekly') {
+        currentDate.add(Number(editForm.repeat_interval) || 1, 'weeks');
+      } else if (editForm.repeat_type === 'fortnightly') {
+        currentDate.add(2, 'weeks');
+      } else if (editForm.repeat_type === 'monthly') {
+        currentDate.add(1, 'months');
+      } else {
+        break;
       }
     }
 
-    // 2. Insert extra shifts if added
-    if (extraShifts.length > 0) {
-      const extraPayloads = extraShifts.map(extra => ({
+    if (payloads.length > 0) {
+      const { error } = await supabase.from('daily_shifts').insert(payloads);
+      if (error) {
+        setNotification(`Error saving recurring shifts: ${error.message}`);
+        return;
+      }
+    }
+  } else {
+    // 2. Non-recurring: Collect ALL shifts on this screen (main editForm + any extraShifts)
+    const shiftsToInsert = [
+      {
+        id: existingShift?.id || crypto.randomUUID(),
+        user_id: selectedCell.userId,
+        date: selectedCell.date,
+        rostered_start: editForm.rostered_start,
+        rostered_end: editForm.rostered_end,
+        status: editForm.status,
+        is_manual: true
+      },
+      ...extraShifts.map(extra => ({
+        id: extra.id || crypto.randomUUID(),
         user_id: selectedCell.userId,
         date: selectedCell.date,
         rostered_start: extra.rostered_start,
         rostered_end: extra.rostered_end,
-        status: extra.status,
-      }));
+        status: extra.status || 'Scheduled Work',
+        is_manual: true
+      }))
+    ];
 
-      const { error: insertExtraError } = await supabase
-        .from('daily_shifts')
-        .insert(extraPayloads);
+    // Use upsert so it updates the existing primary record by ID and inserts any brand new extra shift rows safely
+    const { error } = await supabase
+      .from('daily_shifts')
+      .upsert(shiftsToInsert);
 
-      if (insertExtraError) {
-        setNotification(`Error inserting extra shifts: ${insertExtraError.message}`);
-        return;
-      }
+    if (error) {
+      setNotification(`Error saving shifts: ${error.message}`);
+      return;
     }
+  }
 
-    // 3. Handle Recurrence Payloads (Runs if repeat type is chosen or apply_until is set past current date)
-    if (editForm.repeat_type !== 'none' || (editForm.apply_until && editForm.apply_until > selectedCell.date)) {
-      const payloads = [];
-      let currentDate = moment(selectedCell.date).add(1, 'days'); // Start recurring from next day
-      const endDate = editForm.apply_until ? moment(editForm.apply_until) : currentDate;
-
-      while (currentDate.isSameOrBefore(endDate)) {
-        payloads.push({
-          user_id: selectedCell.userId,
-          date: currentDate.format('YYYY-MM-DD'),
-          rostered_start: editForm.rostered_start,
-          rostered_end: editForm.rostered_end,
-          status: editForm.status,
-        });
-
-        if (editForm.repeat_type === 'daily') {
-          currentDate.add(Number(editForm.repeat_interval) || 1, 'days');
-        } else if (editForm.repeat_type === 'weekly') {
-          currentDate.add(Number(editForm.repeat_interval) || 1, 'weeks');
-        } else if (editForm.repeat_type === 'fortnightly') {
-          currentDate.add(2, 'weeks');
-        } else if (editForm.repeat_type === 'monthly') {
-          currentDate.add(1, 'months');
-        } else {
-          break; 
-        }
-      }
-
-      if (payloads.length > 0) {
-        const { error } = await supabase
-          .from('daily_shifts')
-          .insert(payloads);
-
-        if (error) {
-          setNotification(`Error saving recurring shifts: ${error.message}`);
-          return;
-        }
-      }
-    } else if (!existingShift && extraShifts.length === 0) {
-      // Standard single insert if no existing shift was edited and no recurrence is set
-      const { error } = await supabase
-        .from('daily_shifts')
-        .insert({
-          user_id: selectedCell.userId,
-          date: selectedCell.date,
-          rostered_start: editForm.rostered_start,
-          rostered_end: editForm.rostered_end,
-          status: editForm.status,
-        });
-
-      if (error) {
-        setNotification(`Error saving shift: ${error.message}`);
-        return;
-      }
-    }
-
-    fetchData();
-    setSelectedCell(null);
-    setExistingShift(null);
-    setExtraShifts([]);
-  };
+  fetchData();
+  setSelectedCell(null);
+  setExistingShift(null);
+  setExtraShifts([]);
+};
 
   const displayedStaff = useMemo(() => {
     if (!isManager) {
@@ -556,18 +537,17 @@ const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn
                     </td>
 
 {daysInMonth.map(day => {
-  const currentShift = shifts.find(
+  const cellShifts = shifts.filter(
     s => s.user_id === staff.id && moment(s.date).format('YYYY-MM-DD') === day.dateStr
   );
   const leave = leaveData.find(
     l => l.user_id === staff.id && day.dateStr >= l.start_date && day.dateStr <= l.end_date
   );
-  const isOff = !currentShift || currentShift.status === 'off' || !currentShift.rostered_start;
 
   return (
     <td 
       key={day.dateStr} 
-      onClick={() => handleCellClick(staff, day.dateStr, currentShift)}
+      onClick={() => handleCellClick(staff, day.dateStr, cellShifts)}
       className={`p-2 text-center border-l border-slate-100 align-middle transition-colors ${
         isManager ? 'cursor-pointer hover:bg-indigo-50/60' : ''
       } ${day.isWeekend ? 'bg-slate-50/50' : ''}`}
@@ -578,7 +558,7 @@ const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn
         }`}>
           {leave.leave_type === 'sick' ? '🤒 Sick' : '🌴 Holiday'}
         </div>
-      ) : isOff ? (
+      ) : cellShifts.length === 0 || cellShifts.every(s => s.status === 'off' || !s.rostered_start) ? (
         <div className="flex flex-col items-center gap-1">
           <span className="inline-block px-2 py-1 text-[10px] font-bold text-slate-400 bg-slate-100 rounded">
             OFF
@@ -588,7 +568,7 @@ const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                handleDirectManualClock(staff.id, day.dateStr, true, currentShift?.id);
+                handleDirectManualClock(staff.id, day.dateStr, true, cellShifts[0]?.id);
               }}
               className="text-[9px] text-indigo-600 hover:underline font-semibold"
             >
@@ -597,38 +577,44 @@ const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn
           )}
         </div>
       ) : (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-1.5 text-[11px] shadow-2xs space-y-1">
-          <div className="font-bold text-indigo-950 leading-tight">
-            {currentShift.rostered_start} - {currentShift.rostered_end}
-          </div>
-          <div className="text-[10px] text-indigo-600 font-semibold">
-            {currentShift.hours ? `${currentShift.hours}h` : ''}
-          </div>
-          
-          {/* Manager Quick Action Clock In/Out Buttons next to shift info */}
-          {isManager && (
-            <div className="pt-1 border-t border-indigo-100 flex justify-center gap-1.5 text-[9px]" onClick={(e) => e.stopPropagation()}>
-              {!currentShift.actual_start || currentShift.actual_finish ? (
-                <button
-                  type="button"
-                  onClick={() => handleDirectManualClock(staff.id, day.dateStr, true, currentShift?.id)}
-                  className="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold hover:bg-emerald-700"
-                  title="Manual Clock In"
-                >
-                  In
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleDirectManualClock(staff.id, day.dateStr, false, currentShift?.id)}
-                  className="px-1.5 py-0.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700"
-                  title="Manual Clock Out"
-                >
-                  Out
-                </button>
-              )}
-            </div>
-          )}
+        <div className="space-y-1.5">
+          {cellShifts.map((shift) => {
+            if (shift.status === 'off' || !shift.rostered_start) return null;
+            return (
+              <div key={shift.id} className="bg-indigo-50 border border-indigo-100 rounded-lg p-1.5 text-[11px] shadow-2xs space-y-1">
+                <div className="font-bold text-indigo-950 leading-tight">
+                  {shift.rostered_start} - {shift.rostered_end}
+                </div>
+                <div className="text-[10px] text-indigo-600 font-semibold">
+                  {shift.hours ? `${shift.hours}h` : ''}
+                </div>
+                
+                {isManager && (
+                  <div className="pt-1 border-t border-indigo-100 flex justify-center gap-1.5 text-[9px]" onClick={(e) => e.stopPropagation()}>
+                    {!shift.actual_start || shift.actual_finish ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDirectManualClock(staff.id, day.dateStr, true, shift.id)}
+                        className="px-1.5 py-0.5 bg-emerald-600 text-white rounded font-bold hover:bg-emerald-700"
+                        title="Manual Clock In"
+                      >
+                        In
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleDirectManualClock(staff.id, day.dateStr, false, shift.id)}
+                        className="px-1.5 py-0.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700"
+                        title="Manual Clock Out"
+                      >
+                        Out
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </td>
@@ -649,7 +635,15 @@ const handleDirectManualClock = async (staffId: string, dateStr: string, clockIn
             <h3 className="text-lg font-bold text-slate-800">
               Edit Shift: {selectedCell.userName}
             </h3>
-            <p className="text-sm text-slate-500">Date: {selectedCell.date}</p>
+            <div>
+  <label className="block text-xs font-bold text-slate-600 mb-1">Date</label>
+  <input
+    type="date"
+    value={selectedCell.date}
+    onChange={(e) => setSelectedCell({ ...selectedCell, date: e.target.value })}
+    className="w-full border rounded p-2 text-sm bg-white"
+  />
+</div>
 
             <div className="space-y-3">
               <div>

@@ -6,7 +6,10 @@ import { createClient } from '../../../lib/supabase'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import TeamCalendar from '../../components/TeamCalendar';
 import LeaveApprovalWidget from '../../components/LeaveApprovalWidget';
+import ShiftGeneratorModal from '../../components/ShiftGeneratorModal';
 import moment from 'moment';
+import ClassicPatternModal from '../../components/ClassicPatternModal';
+import ShiftControls from '../../components/utils/ShiftControls'
 
 interface ShiftRecord {
   id: string;
@@ -37,7 +40,7 @@ const TimesheetLogsView = () => {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    router.push('/login'); // or your login route
+    router.push('/login');
   };
   
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
@@ -49,17 +52,16 @@ const TimesheetLogsView = () => {
     moment(currentWeekStart).add(i, 'days').format('YYYY-MM-DD')
   );
 
-const fetchTimesheetsData = async () => {
+  const fetchTimesheetsData = async () => {
     setLoading(true);
     const weekEnd = moment(currentWeekStart).add(6, 'days').format('YYYY-MM-DD');
 
     const profileResponse = await supabase.from('profiles').select('*');
     const profileData = profileResponse.data as Profile[] | null;
     
-    // Filter out the developer account from the list
-const filteredProfiles = (profileData || []).filter(
-  p => p.role !== 'master' && p.role !== 'developer'
-);
+    const filteredProfiles = (profileData || []).filter(
+      p => p.role !== 'master' && p.role !== 'developer'
+    );
     setProfiles(filteredProfiles);
 
     const { data: shiftData, error } = await supabase
@@ -302,17 +304,16 @@ const EntitlementsStatsLogView = () => {
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-useEffect(() => {
+  useEffect(() => {
     const fetchEntitlementsData = async () => {
       setLoading(true);
       const { data: profileData } = await supabase.from('profiles').select('*');
       const { data: shiftData } = await supabase.from('daily_shifts').select('*');
       const { data: leaveData } = await supabase.from('leave_requests').select('*');
 
-      // Filter out the developer account from entitlements view
-const filteredProfiles = (profileData || []).filter(
-  (p: Profile) => p.role !== 'master' && p.role !== 'developer'
-);
+      const filteredProfiles = (profileData || []).filter(
+        (p: Profile) => p.role !== 'master' && p.role !== 'developer'
+      );
 
       setProfiles(filteredProfiles);
       setShifts(shiftData || []);
@@ -367,7 +368,7 @@ const filteredProfiles = (profileData || []).filter(
             const otMins = Math.max(0, workedMins - schedMins);
             const otHours = (otMins / 60).toFixed(1);
 
-            const totalAllowance = 25; // Default allowance days
+            const totalAllowance = 25;
             const usedDays = leaveRequests
               .filter(req => req.user_id === profile.id && req.status === 'approved')
               .reduce((acc, req) => {
@@ -403,7 +404,7 @@ const filteredProfiles = (profileData || []).filter(
 };
 
 export default function AdminDashboard() {
-  const supabase = createClient() 
+  const supabase = createClient();
   
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
@@ -411,7 +412,9 @@ export default function AdminDashboard() {
 
   const [staff, setStaff] = useState<any[]>([]);
   const [isAddingStaff, setIsAddingStaff] = useState(false);
+  const [showClassicGenerator, setShowClassicGenerator] = useState(false);
   const [showShiftGenerator, setShowShiftGenerator] = useState(false);
+
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffEmail, setNewStaffEmail] = useState('');
   const [newStaffRate, setNewStaffRate] = useState(12.0);
@@ -436,11 +439,11 @@ export default function AdminDashboard() {
 
     setProfile(profileData);
 
-const { data: staffData } = await supabase
+    const { data: staffData } = await supabase
       .from('profiles')
       .select('*')
       .neq('id', session.user.id)
-      .neq('email', 'faisaly.zenuwah@outlook.com'); // Exclude developer email from general staff lists
+      .neq('email', 'faisaly.zenuwah@outlook.com');
 
     setStaff(staffData || []);
     setLoading(false);
@@ -512,14 +515,25 @@ const { data: staffData } = await supabase
       <LeaveApprovalWidget userRole={profile?.role} />
 
       <div className="flex items-center justify-between mb-4">
-  <h2 className="text-lg font-bold text-slate-800">Team Roster</h2>
-  <button
-    onClick={() => setShowShiftGenerator(true)}
-    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition shadow text-sm"
-  >
-    ⚡ Dynamic Shift Generator
-  </button>
-</div>
+        <h2 className="text-lg font-bold text-slate-800">Team Roster</h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowClassicGenerator(true)}
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg font-medium transition shadow cursor-pointer"
+          >
+            Classic Pattern Generator
+          </button>
+          <button
+            onClick={() => setShowShiftGenerator(true)}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition shadow flex items-center gap-2 cursor-pointer"
+          >
+            <span>⚡</span> Dynamic Shift Generator
+          </button>
+        </div>
+      </div>
+
+      {/* Shift Controls / Batch Generator */}
+      <ShiftControls staffList={staff} />
 
       {/* Calendar Section */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
@@ -545,61 +559,81 @@ const { data: staffData } = await supabase
         <TimesheetLogsView />
       </div>
 
+      {/* Dynamic Shift Generator Modal */}
+      <ShiftGeneratorModal
+        staffList={staff}
+        isOpen={showShiftGenerator}
+        onClose={() => setShowShiftGenerator(false)}
+        onSuccess={() => {
+          checkAccessAndFetchStaff();
+        }}
+      />
+
+      {/* Classic Pattern Generator Modal */}
+      <ClassicPatternModal
+        staffList={staff}
+        isOpen={showClassicGenerator}
+        onClose={() => setShowClassicGenerator(false)}
+        onSuccess={() => {
+          checkAccessAndFetchStaff();
+        }}
+      />
+
       {/* Add Staff Modal */}
       {isAddingStaff && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-8 rounded-2xl max-w-md w-full shadow-2xl border border-slate-100">
-            <h2 className="text-2xl font-black text-slate-900 mb-6">Invite New Staff</h2>
-            <div className="space-y-4">
+          <div className="bg-white p-6 rounded-2xl max-w-md w-full shadow-2xl border border-slate-100 space-y-4">
+            <h3 className="text-xl font-bold text-slate-900">Invite New Staff Member</h3>
+            <div className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
-                <input 
-                  placeholder="e.g. Jane Doe" 
+                <input
+                  type="text"
                   value={newStaffName}
-                  className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
-                  onChange={e => setNewStaffName(e.target.value)} 
+                  onChange={(e) => setNewStaffName(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email Address</label>
-                <input 
-                  placeholder="jane@example.com" 
+                <input
                   type="email"
                   value={newStaffEmail}
-                  className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
-                  onChange={e => setNewStaffEmail(e.target.value)} 
+                  onChange={(e) => setNewStaffEmail(e.target.value)}
+                  placeholder="e.g. john@example.com"
+                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hourly Rate (£)</label>
-                <input 
-                  type="number" 
-                  placeholder="12.00" 
+                <input
+                  type="number"
+                  step="0.50"
                   value={newStaffRate}
-                  step="0.10"
-                  className="w-full p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
-                  onChange={e => setNewStaffRate(Number(e.target.value))} 
+                  onChange={(e) => setNewStaffRate(parseFloat(e.target.value))}
+                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
-            <div className="flex gap-3 mt-8">
-              <button 
-                onClick={() => setIsAddingStaff(false)} 
-                className="flex-1 p-3 font-bold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsAddingStaff(false)}
+                className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 cursor-pointer"
               >
                 Cancel
               </button>
-              <button 
-                onClick={handleAddStaff} 
+              <button
                 disabled={isInviting}
-                className="flex-1 p-3 font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
+                onClick={handleAddStaff}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 cursor-pointer"
               >
-                {isInviting ? 'Sending...' : 'Send Invite'}
+                {isInviting ? 'Sending Invite...' : 'Send Invitation'}
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

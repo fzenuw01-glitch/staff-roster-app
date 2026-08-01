@@ -50,15 +50,15 @@ export default function GenerateRosterButton({ selectedMonth, onRosterGenerated 
       const newShifts = await generateShifts(startDate, endDate, staffAssignments);
 
       if (newShifts.length > 0) {
-        const { error: insertError } = await supabase
-          .from('daily_shifts')
+        const { error } = await supabase
+          .from('shifts')
           .insert(newShifts);
 
-        if (insertError) throw insertError;
+        if (error) throw error;
       }
 
       alert(`Roster for ${selectedMonth} successfully generated!`);
-      
+
       router.refresh();
       onRosterGenerated();
 

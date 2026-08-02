@@ -98,11 +98,11 @@ if (!onSite && !isExemptRole) {
   throw new Error(`Clock-in blocked: You are ${distanceInMeters}m away from the site. You must be within ${radius_meters}m to clock in.`);
 }
 
-      if (isClockedIn) {
+if (isClockedIn) {
         const { error } = await supabase
           .from("daily_shifts")
           .update({
-            actual_end: now.toISOString(),
+            actual_finish: now.toISOString(), // Changed from actual_end
             end_latitude: coords.lat,
             end_longitude: coords.lng,
           })

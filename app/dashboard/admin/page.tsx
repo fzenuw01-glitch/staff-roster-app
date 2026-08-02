@@ -20,6 +20,7 @@ interface ShiftRecord {
   actual_start: string | null;
   actual_finish: string | null;
   status: string;
+  hours?: number | null;
 }
 
 interface Profile {
@@ -37,11 +38,6 @@ const TimesheetLogsView = () => {
   );
 
   const router = useRouter();
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-  };
   
   const [shifts, setShifts] = useState<ShiftRecord[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -84,14 +80,30 @@ const TimesheetLogsView = () => {
 
   const handleTimeChange = async (userId: string, dateStr: string, field: 'actual_start' | 'actual_finish', timeValue: string) => {
     if (!timeValue) return;
-    const fullTimestamp = moment(`${dateStr} ${timeValue}:00`, 'YYYY-MM-DD HH:mm:ss').toISOString();
-
+    
+    // Construct valid ISO string for precise payroll calculation storage
+    const fullTimestamp = moment(`${dateStr} ${timeValue}`, 'YYYY-MM-DD HH:mm').toISOString();
     const existingShift = shifts.find(s => s.user_id === userId && s.date === dateStr);
+
+    const currentStart = field === 'actual_start' ? fullTimestamp : (existingShift?.actual_start);
+    const currentFinish = field === 'actual_finish' ? fullTimestamp : (existingShift?.actual_finish);
+
+    let calculatedHours = existingShift?.hours || 0;
+    if (currentStart && currentFinish) {
+      const startM = moment(currentStart);
+      const finishM = moment(currentFinish);
+      let diffMins = finishM.diff(startM, 'minutes');
+      if (diffMins < 0) diffMins += 24 * 60; // Handle overnight shifts cleanly
+      calculatedHours = diffMins > 0 ? Number((diffMins / 60).toFixed(2)) : 0;
+    }
 
     if (existingShift) {
       const { error } = await supabase
         .from('daily_shifts')
-        .update({ [field]: fullTimestamp })
+        .update({ 
+          [field]: fullTimestamp,
+          hours: calculatedHours 
+        })
         .eq('id', existingShift.id);
 
       if (error) setNotification(`Failed to update: ${error.message}`);
@@ -107,7 +119,8 @@ const TimesheetLogsView = () => {
           user_id: userId,
           date: dateStr,
           status: 'scheduled',
-          [field]: fullTimestamp
+          [field]: fullTimestamp,
+          hours: calculatedHours
         });
 
       if (error) setNotification(`Failed to create log: ${error.message}`);
@@ -142,7 +155,8 @@ const TimesheetLogsView = () => {
       if (shift?.actual_start && shift?.actual_finish) {
         const start = moment(shift.actual_start);
         const finish = moment(shift.actual_finish);
-        const diff = finish.diff(start, 'minutes');
+        let diff = finish.diff(start, 'minutes');
+        if (diff < 0) diff += 24 * 60;
         if (diff > 0) {
           dailyTotals[date] += diff;
           grandTotalWeeklyMinutes += diff;
@@ -232,7 +246,8 @@ const TimesheetLogsView = () => {
                       if (shift?.actual_start && shift?.actual_finish) {
                         const start = moment(shift.actual_start);
                         const finish = moment(shift.actual_finish);
-                        const diff = finish.diff(start, 'minutes');
+                        let diff = finish.diff(start, 'minutes');
+                        if (diff < 0) diff += 24 * 60;
                         if (diff > 0) totalWeeklyWorkedMinutes += diff;
                       }
 
@@ -359,7 +374,8 @@ const EntitlementsStatsLogView = () => {
               if (shift.actual_start && shift.actual_finish) {
                 const aStart = moment(shift.actual_start);
                 const aFinish = moment(shift.actual_finish);
-                const diff = aFinish.diff(aStart, 'minutes');
+                let diff = aFinish.diff(aStart, 'minutes');
+                if (diff < 0) diff += 24 * 60; // Safeguard overnight actual calculations
                 if (diff > 0) workedMins += diff;
               }
             });

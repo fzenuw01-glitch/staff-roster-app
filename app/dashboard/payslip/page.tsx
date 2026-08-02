@@ -1,5 +1,6 @@
 'use client'
 
+import moment from 'moment'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase' // Ensure this matches your supabase path
 import { useRouter, useParams } from 'next/navigation'
@@ -79,72 +80,102 @@ export default function PayslipPage() {
   const router = useRouter()
   const params = useParams()
 
-  const [profile, setProfile] = useState<any>(null)
-  const [payrollData, setPayrollData] = useState<any>(null)
-  const [payableHours, setPayableHours] = useState(0)
-  const [currentMonth, setCurrentMonth] = useState(new Date())
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetchPayslipData()
-  }, [currentMonth])
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<any>(null);
+  const [payableHours, setPayableHours] = useState(0);
+  const [payrollData, setPayrollData] = useState<any>(null);
+  const [currentMonth, setCurrentMonth] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 
   const fetchPayslipData = async () => {
-    setLoading(true)
+    try {
+      setLoading(true);
 
-    // 1. Determine target user ID (from URL params or current user session)
-    let targetUserId = params?.id as string;
+      let targetUserId = params?.id as string;
+      if (!targetUserId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        targetUserId = session?.user?.id || '';
+      }
 
-    if (!targetUserId) {
-      const { data: { session } } = await supabase.auth.getSession()
-      targetUserId = session?.user?.id || ''
-    }
+      if (!targetUserId) {
+        setLoading(false);
+        return;
+      }
 
-    if (!targetUserId) {
-      setLoading(false)
-      return
-    }
+      // Fetch Profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', targetUserId)
+        .single();
 
-    // 2. Fetch staff profile (including payment_frequency)
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', targetUserId)
-      .single()
+      if (profileError || !profileData) {
+        console.error('Error fetching profile:', profileError);
+        setLoading(false);
+        return;
+      }
 
-    if (profileData) {
-      setProfile(profileData)
+      setProfile(profileData);
 
-const year = currentMonth.getFullYear()
-const month = currentMonth.getMonth()
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const startDate = `${year}-${pad(month + 1)}-01`;
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const endDate = `${year}-${pad(month + 1)}-${pad(lastDay)}`;
 
-// Format explicitly as YYYY-MM-DD to match the 'date' column type in Supabase
-const pad = (n: number) => String(n).padStart(2, '0')
-const startDate = `${year}-${pad(month + 1)}-01`
-const lastDay = new Date(year, month + 1, 0).getDate()
-const endDate = `${year}-${pad(month + 1)}-${pad(lastDay)}`
-
-      // 3. Fetch shifts for the selected period
-      const { data: shiftsData } = await supabase
-        .from('daily_shifts') // Adjusted to daily_shifts
-        .select('hours')
+// Fetch only shifts that have legitimate actual clocked timestamps
+      const { data: shiftsData, error: shiftsError } = await supabase
+        .from('daily_shifts')
+        .select('*')
         .eq('user_id', targetUserId)
         .gte('date', startDate)
         .lte('date', endDate)
+        .neq('actual_start', '')
+        .neq('actual_end', '')
+        .not('actual_start', 'is', null)
+        .not('actual_end', 'is', null);
 
-      const totalHours = shiftsData?.reduce((acc: number, shift: any) => acc + (Number(shift.hours) || 0), 0) || 0
-      setPayableHours(totalHours)
+      if (shiftsError) {
+        console.error('Error fetching shifts:', shiftsError);
+      }
 
-      // 4. Calculate with user rate and payment frequency
-      const rate = profileData.hourly_rate || 0
-      const frequency = profileData.payment_frequency || 'Monthly'
-      const calculated = calculateUKPayroll(totalHours, rate, frequency)
-      
-      setPayrollData(calculated)
+let totalWorkedMinutes = 0;
+(shiftsData || []).forEach((shift: any) => {
+  console.log("Processing shift:", shift.date, shift.actual_start, shift.actual_end); // Add this
+  if (shift.actual_start && shift.actual_end && shift.actual_start.length > 10 && shift.actual_end.length > 10) {
+    const start = moment(shift.actual_start);
+    const finish = moment(shift.actual_end);
+    let diff = finish.diff(start, 'minutes');
+    
+    if (diff < 0) diff += 24 * 60; 
+    
+    if (diff > 0 && diff < 1440) {
+      totalWorkedMinutes += diff;
     }
-
-    setLoading(false)
   }
+});
+
+const totalHours = shiftsData && shiftsData.length > 0 
+  ? Number((totalWorkedMinutes / 60).toFixed(2)) 
+  : 0;
+
+setPayableHours(totalHours);
+
+      const rate = profileData.hourly_rate || 0;
+      const frequency = profileData.payment_frequency || 'Monthly';
+      const calculated = calculateUKPayroll(totalHours, rate, frequency);
+      
+      setPayrollData(calculated);
+    } catch (err) {
+      console.error('Unexpected error in fetchPayslipData:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPayslipData();
+  }, [currentMonth, params?.id]);
 
   const handlePrint = () => window.print()
 

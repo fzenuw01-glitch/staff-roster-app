@@ -35,10 +35,10 @@ export default function ClockInButton({
   actualEnd, 
   onStatusChange 
 }: ClockInOutProps) {
-const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string | null>(null); // Added debug state
 
-const supabase = createClient();
+  const supabase = createClient();
 
   const isClockedIn = Boolean(actualStart) && !actualEnd;
   const isCompleted = Boolean(actualEnd);
@@ -80,25 +80,25 @@ const supabase = createClient();
       const loc = Array.isArray(profile.locations) ? profile.locations[0] : profile.locations;
       if (!loc) throw new Error("Location not assigned.");
 
-const { latitude, longitude, radius_meters } = loc as { latitude: number; longitude: number; radius_meters: number };
-const coords = await getCoordinates();
+      const { latitude, longitude, radius_meters } = loc as { latitude: number; longitude: number; radius_meters: number };
+      const coords = await getCoordinates();
 
-if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
-  throw new Error("Unable to retrieve device GPS location. Please ensure location services are enabled.");
-}
+      if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
+        throw new Error("Unable to retrieve device GPS location. Please ensure location services are enabled.");
+      }
 
-const distanceInMeters = getDistance(coords.lat, coords.lng, latitude, longitude);
-const onSite = distanceInMeters <= radius_meters;
+      const distanceInMeters = getDistance(coords.lat, coords.lng, latitude, longitude);
+      const onSite = distanceInMeters <= radius_meters;
 
-// Explicitly log attempt for debugging if needed
-console.log(`Clock attempt - Device: (${coords.lat}, ${coords.lng}), Target: (${latitude}, ${longitude}), Distance: ${distanceInMeters}m, Allowed: ${radius_meters}m`);
+      // Explicitly log attempt for debugging if needed
+      console.log(`Clock attempt - Device: (${coords.lat}, ${coords.lng}), Target: (${latitude}, ${longitude}), Distance: ${distanceInMeters}m, Allowed: ${radius_meters}m`);
 
-// Strictly block non-exempt staff if outside the radius
-if (!onSite && !isExemptRole) {
-  throw new Error(`Clock-in blocked: You are ${distanceInMeters}m away from the site. You must be within ${radius_meters}m to clock in.`);
-}
+      // Strictly block non-exempt staff if outside the radius
+      if (!onSite && !isExemptRole) {
+        throw new Error(`Clock-in blocked: You are ${distanceInMeters}m away from the site. You must be within ${radius_meters}m to clock in.`);
+      }
 
-if (isClockedIn) {
+      if (isClockedIn) {
         const { error } = await supabase
           .from("daily_shifts")
           .update({
@@ -160,19 +160,19 @@ if (isClockedIn) {
 
   if (isClockedIn && !canClockOut) {
     return (
-      <div className="text-xs font-medium text-amber-600 bg-amber-50 px-3 py-2 rounded border border-amber-200">
+      <div className="text-xs font-medium text-amber-600 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200">
         Clock out unlocks near shift end
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col items-start gap-2">
+    <div className="flex flex-col items-start gap-2 w-full">
       <button 
         onClick={handleClockAction} 
         disabled={loading}
-        className={`px-4 py-2 rounded text-white font-bold transition disabled:opacity-50 cursor-pointer ${
-          isClockedIn ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+        className={`w-full sm:w-auto px-5 py-2.5 rounded-xl text-white font-bold transition-all disabled:opacity-50 cursor-pointer shadow-sm ${
+          isClockedIn ? "bg-rose-600 hover:bg-rose-700" : "bg-blue-600 hover:bg-blue-700"
         }`}
       >
         {loading ? "Verifying location..." : isClockedIn ? "Clock Out" : "Clock In"}
